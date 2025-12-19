@@ -66,14 +66,33 @@ export function UsersSection({ serverId }: UsersSectionProps) {
       ])
 
       setUsers(
-        usersData.map((u: any) => ({
-          id: u.dn || u.username,
-          username: u.username || u.sAMAccountName || '',
-          fullName: u.fullName || u.displayName || u.cn || '',
-          email: u.email || u.mail || '',
-          groups: Array.isArray(u.groups) ? u.groups.join(', ') : u.groups || '',
-          enabled: u.enabled !== false ? 'Да' : 'Нет',
-        }))
+        usersData.map((u: any) => {
+          // memberOf содержит DN групп в base64, декодируем и извлекаем CN
+          const memberOf = u.memberOf || u.groups || []
+          const groupNames = (Array.isArray(memberOf) ? memberOf : [memberOf])
+            .map((dn: string) => {
+              // Сначала декодируем base64
+              let decoded = dn
+              try {
+                decoded = decodeURIComponent(escape(atob(dn)))
+              } catch {
+                // Не base64, оставляем как есть
+              }
+              // Извлекаем первый CN из DN (имя группы)
+              const match = decoded.match(/CN=([^,]+)/i)
+              return match ? match[1] : decoded
+            })
+            .join(', ')
+          
+          return {
+            id: u.dn || u.username,
+            username: u.username || u.sAMAccountName || '',
+            fullName: u.fullName || u.displayName || u.cn || '',
+            email: u.email || u.mail || '',
+            groups: groupNames,
+            enabled: u.enabled !== false ? 'Да' : 'Нет',
+          }
+        })
       )
 
       setComputers(
@@ -299,12 +318,24 @@ export function UsersSection({ serverId }: UsersSectionProps) {
             <DialogTitle>Смена пароля</DialogTitle>
             <DialogDescription>Новый пароль для {passwordUser?.username}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="newPassword">Новый пароль</Label>
-              <Input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Введите новый пароль" />
+          <form autoComplete="off" onSubmit={(e) => e.preventDefault()}>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="newPassword">Новый пароль</Label>
+                <Input
+                  id="newPassword"
+                  type="password"
+                  name="new-password-field"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Введите новый пароль"
+                  autoComplete="new-password"
+                  data-form-type="other"
+                  data-lpignore="true"
+                />
+              </div>
             </div>
-          </div>
+          </form>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPasswordDialogOpen(false)}>
               Отмена

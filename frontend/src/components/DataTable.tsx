@@ -87,7 +87,18 @@ export function DataTable<T extends { id: string | number }>({
       <div className="flex items-center gap-3">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input type="text" placeholder={searchPlaceholder} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9" />
+          <Input
+            type="search"
+            role="searchbox"
+            name="table-filter"
+            placeholder={searchPlaceholder}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+            autoComplete="off"
+            data-form-type="other"
+            data-lpignore="true"
+          />
         </div>
         {onAdd && (
           <Button onClick={onAdd} className="bg-blue-600 hover:bg-blue-700">
