@@ -202,6 +202,24 @@ class ApiClient {
     return this.request<any[]>(`/dhcp/subnets?server_id=${serverId}`)
   }
 
+  async createDhcpSubnet(serverId: string, data: any) {
+    return this.request<any>(`/dhcp/subnets?server_id=${serverId}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  async updateDhcpSubnet(serverId: string, subnetId: string, data: any) {
+    return this.request<any>(`/dhcp/subnets/${subnetId}?server_id=${serverId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
+  }
+
+  async deleteDhcpSubnet(serverId: string, subnetId: string) {
+    return this.request(`/dhcp/subnets/${subnetId}?server_id=${serverId}`, { method: 'DELETE' })
+  }
+
   async getDhcpReservations(serverId: string) {
     return this.request<any[]>(`/dhcp/reservations?server_id=${serverId}`)
   }

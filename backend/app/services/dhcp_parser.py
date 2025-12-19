@@ -25,8 +25,9 @@ def parse_dhcpd_conf(content: str) -> Tuple[List[DHCPSubnet], List[DHCPReservati
         netmask = match.group(2)
         block = match.group(3)
         
+        # Стабильный ID на основе network/netmask
         subnet = DHCPSubnet(
-            id=str(uuid.uuid4())[:8],
+            id=f"{network}_{netmask}",
             network=network,
             netmask=netmask,
         )

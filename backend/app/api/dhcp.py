@@ -42,6 +42,8 @@ def load_dhcp_config(ssh: SSHService) -> tuple:
 
 def save_dhcp_config(ssh: SSHService, subnets: List[DHCPSubnet], reservations: List[DHCPReservation]):
     """Save DHCP config to server and reload service."""
+    from datetime import datetime
+    
     config = serialize_dhcpd_conf(subnets, reservations)
     print(f"[DEBUG] Generated config:\n{config[:500]}")
     
@@ -56,6 +58,11 @@ def save_dhcp_config(ssh: SSHService, subnets: List[DHCPSubnet], reservations: L
     
     if exit_code != 0:
         raise HTTPException(status_code=400, detail=f"Ошибка синтаксиса: {stdout or stderr}")
+    
+    # Создаём бэкап перед изменением
+    backup_name = f"/etc/dhcp/dhcpd.conf.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    ssh.execute(f"cp {DHCPD_CONF_PATH} {backup_name}")
+    print(f"[DEBUG] Backup created: {backup_name}")
     
     # Write config
     import tempfile
@@ -130,7 +137,9 @@ async def update_subnet(
         
         for i, s in enumerate(subnets):
             if s.id == subnet_id:
-                updated = DHCPSubnet(id=subnet_id, **subnet.model_dump())
+                # Новый id формируется из network_netmask
+                new_id = f"{subnet.network}_{subnet.netmask}"
+                updated = DHCPSubnet(id=new_id, **subnet.model_dump())
                 subnets[i] = updated
                 save_dhcp_config(ssh, subnets, reservations)
                 return updated

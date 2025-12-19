@@ -9,8 +9,8 @@ import { api } from '../api/client'
 
 interface DHCPScope {
   id: string
-  name: string
   network: string
+  netmask: string
   rangeStart: string
   rangeEnd: string
   gateway: string
@@ -44,7 +44,9 @@ export function DHCPSection({ serverId }: DHCPSectionProps) {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogType, setDialogType] = useState<'scope' | 'reservation'>('reservation')
+  const [editingScope, setEditingScope] = useState<DHCPScope | null>(null)
   const [editingReservation, setEditingReservation] = useState<DHCPReservation | null>(null)
+  const [scopeFormData, setScopeFormData] = useState({ network: '', netmask: '255.255.255.0', rangeStart: '', rangeEnd: '', gateway: '', dns: '' })
   const [reservationFormData, setReservationFormData] = useState({ hostname: '', mac: '', ip: '', description: '' })
 
   useEffect(() => {
@@ -60,31 +62,37 @@ export function DHCPSection({ serverId }: DHCPSectionProps) {
         api.getDhcpLeases(serverId).catch(() => []),
       ])
 
-      setScopes(subnetData.map((s: any, i: number) => ({
-        id: s.id || String(i),
-        name: s.name || s.subnet || '',
-        network: s.network || s.subnet || '',
-        rangeStart: s.rangeStart || s.range_start || '',
-        rangeEnd: s.rangeEnd || s.range_end || '',
-        gateway: s.gateway || s.routers || '',
-        dns: s.dns || s.dns_servers || '',
-      })))
+      setScopes(
+        subnetData.map((s: any, i: number) => ({
+          id: s.id || String(i),
+          network: s.network || s.subnet || '',
+          netmask: s.netmask || '255.255.255.0',
+          rangeStart: s.range_start || s.rangeStart || '',
+          rangeEnd: s.range_end || s.rangeEnd || '',
+          gateway: s.routers || s.gateway || '',
+          dns: s.domain_name_servers || s.dns || '',
+        }))
+      )
 
-      setReservations(reservationData.map((r: any, i: number) => ({
-        id: r.id || r.mac || String(i),
-        hostname: r.hostname || r.name || '',
-        mac: r.mac || '',
-        ip: r.ip || r.address || '',
-        description: r.description || '',
-      })))
+      setReservations(
+        reservationData.map((r: any, i: number) => ({
+          id: r.id || r.mac || String(i),
+          hostname: r.hostname || r.name || '',
+          mac: r.mac || '',
+          ip: r.ip || r.address || '',
+          description: r.description || '',
+        }))
+      )
 
-      setLeases(leaseData.map((l: any, i: number) => ({
-        id: l.id || String(i),
-        ip: l.ip || l.address || '',
-        mac: l.mac || '',
-        hostname: l.hostname || l.client_hostname || '',
-        expires: l.expires || l.end || '',
-      })))
+      setLeases(
+        leaseData.map((l: any, i: number) => ({
+          id: l.id || String(i),
+          ip: l.ip || l.address || '',
+          mac: l.mac || '',
+          hostname: l.hostname || l.client_hostname || '',
+          expires: l.ends || l.expires || '',
+        }))
+      )
     } catch (e) {
       console.error('Failed to load DHCP data:', e)
     } finally {
@@ -92,6 +100,40 @@ export function DHCPSection({ serverId }: DHCPSectionProps) {
     }
   }
 
+  // Scope handlers
+  const handleAddScope = () => {
+    setDialogType('scope')
+    setEditingScope(null)
+    setScopeFormData({ network: '', netmask: '255.255.255.0', rangeStart: '', rangeEnd: '', gateway: '', dns: '' })
+    setDialogOpen(true)
+  }
+
+  const handleEditScope = (scope: DHCPScope) => {
+    setDialogType('scope')
+    setEditingScope(scope)
+    setScopeFormData({
+      network: scope.network,
+      netmask: scope.netmask,
+      rangeStart: scope.rangeStart,
+      rangeEnd: scope.rangeEnd,
+      gateway: scope.gateway,
+      dns: scope.dns,
+    })
+    setDialogOpen(true)
+  }
+
+  const handleDeleteScope = async (scope: DHCPScope) => {
+    if (confirm(`Удалить область ${scope.network}? Будет создан бэкап конфигурации.`)) {
+      try {
+        await api.deleteDhcpSubnet(serverId, scope.id)
+        await loadData()
+      } catch (e: any) {
+        alert(e.message)
+      }
+    }
+  }
+
+  // Reservation handlers
   const handleAddReservation = () => {
     setDialogType('reservation')
     setEditingReservation(null)
@@ -115,7 +157,7 @@ export function DHCPSection({ serverId }: DHCPSectionProps) {
     if (confirm(`Удалить резервирование для ${reservation.hostname}?`)) {
       try {
         await api.deleteDhcpReservation(serverId, reservation.mac)
-        setReservations(reservations.filter((r) => r.id !== reservation.id))
+        await loadData()
       } catch (e: any) {
         alert(e.message)
       }
@@ -124,11 +166,26 @@ export function DHCPSection({ serverId }: DHCPSectionProps) {
 
   const handleSave = async () => {
     try {
-      if (editingReservation) {
-        // Update не поддерживается — удаляем и создаём заново
-        await api.deleteDhcpReservation(serverId, editingReservation.mac)
+      if (dialogType === 'scope') {
+        const data = {
+          network: scopeFormData.network,
+          netmask: scopeFormData.netmask,
+          range_start: scopeFormData.rangeStart || null,
+          range_end: scopeFormData.rangeEnd || null,
+          routers: scopeFormData.gateway || null,
+          domain_name_servers: scopeFormData.dns || null,
+        }
+        if (editingScope) {
+          await api.updateDhcpSubnet(serverId, editingScope.id, data)
+        } else {
+          await api.createDhcpSubnet(serverId, data)
+        }
+      } else {
+        if (editingReservation) {
+          await api.deleteDhcpReservation(serverId, editingReservation.mac)
+        }
+        await api.createDhcpReservation(serverId, reservationFormData)
       }
-      await api.createDhcpReservation(serverId, reservationFormData)
       await loadData()
       setDialogOpen(false)
     } catch (e: any) {
@@ -152,15 +209,18 @@ export function DHCPSection({ serverId }: DHCPSectionProps) {
         <TabsContent value="scopes" className="mt-4">
           <DataTable
             title="Области DHCP"
-            description="Настроенные DHCP области (только просмотр)"
+            description="Настроенные DHCP области. При сохранении создаётся бэкап."
             columns={[
-              { key: 'network', label: 'Сеть', width: '20%' },
-              { key: 'rangeStart', label: 'Начало диапазона', width: '18%' },
-              { key: 'rangeEnd', label: 'Конец диапазона', width: '18%' },
+              { key: 'network', label: 'Сеть', width: '18%' },
+              { key: 'rangeStart', label: 'Начало диапазона', width: '17%' },
+              { key: 'rangeEnd', label: 'Конец диапазона', width: '17%' },
               { key: 'gateway', label: 'Шлюз', width: '15%' },
-              { key: 'dns', label: 'DNS серверы', width: '20%' },
+              { key: 'dns', label: 'DNS серверы', width: '23%' },
             ]}
             data={scopes}
+            onAdd={handleAddScope}
+            onEdit={handleEditScope}
+            onDelete={handleDeleteScope}
             searchPlaceholder="Поиск областей..."
           />
         </TabsContent>
@@ -202,30 +262,79 @@ export function DHCPSection({ serverId }: DHCPSectionProps) {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingReservation ? 'Редактирование резервирования' : 'Добавление резервирования'}</DialogTitle>
-            <DialogDescription>Привязка IP адреса к MAC адресу</DialogDescription>
+            <DialogTitle>
+              {dialogType === 'scope'
+                ? editingScope
+                  ? 'Редактирование области DHCP'
+                  : 'Добавление области DHCP'
+                : editingReservation
+                  ? 'Редактирование резервирования'
+                  : 'Добавление резервирования'}
+            </DialogTitle>
+            <DialogDescription>
+              {dialogType === 'scope' ? 'При сохранении будет создан бэкап конфигурации' : 'Привязка IP адреса к MAC адресу'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="hostname">Имя хоста</Label>
-              <Input id="hostname" value={reservationFormData.hostname} onChange={(e) => setReservationFormData({ ...reservationFormData, hostname: e.target.value })} placeholder="printer-01" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="mac">MAC адрес</Label>
-              <Input id="mac" value={reservationFormData.mac} onChange={(e) => setReservationFormData({ ...reservationFormData, mac: e.target.value })} placeholder="00:11:22:33:44:55" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="ip">IP адрес</Label>
-              <Input id="ip" value={reservationFormData.ip} onChange={(e) => setReservationFormData({ ...reservationFormData, ip: e.target.value })} placeholder="192.168.1.50" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="description">Описание</Label>
-              <Input id="description" value={reservationFormData.description} onChange={(e) => setReservationFormData({ ...reservationFormData, description: e.target.value })} placeholder="Принтер офис" />
-            </div>
+            {dialogType === 'scope' ? (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="network">Сеть</Label>
+                    <Input id="network" value={scopeFormData.network} onChange={(e) => setScopeFormData({ ...scopeFormData, network: e.target.value })} placeholder="192.168.1.0" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="netmask">Маска</Label>
+                    <Input id="netmask" value={scopeFormData.netmask} onChange={(e) => setScopeFormData({ ...scopeFormData, netmask: e.target.value })} placeholder="255.255.255.0" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="rangeStart">Начало диапазона</Label>
+                    <Input id="rangeStart" value={scopeFormData.rangeStart} onChange={(e) => setScopeFormData({ ...scopeFormData, rangeStart: e.target.value })} placeholder="192.168.1.100" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="rangeEnd">Конец диапазона</Label>
+                    <Input id="rangeEnd" value={scopeFormData.rangeEnd} onChange={(e) => setScopeFormData({ ...scopeFormData, rangeEnd: e.target.value })} placeholder="192.168.1.200" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="gateway">Шлюз (routers)</Label>
+                  <Input id="gateway" value={scopeFormData.gateway} onChange={(e) => setScopeFormData({ ...scopeFormData, gateway: e.target.value })} placeholder="192.168.1.1" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dns">DNS серверы</Label>
+                  <Input id="dns" value={scopeFormData.dns} onChange={(e) => setScopeFormData({ ...scopeFormData, dns: e.target.value })} placeholder="192.168.1.1, 8.8.8.8" />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="hostname">Имя хоста</Label>
+                  <Input id="hostname" value={reservationFormData.hostname} onChange={(e) => setReservationFormData({ ...reservationFormData, hostname: e.target.value })} placeholder="printer-01" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="mac">MAC адрес</Label>
+                  <Input id="mac" value={reservationFormData.mac} onChange={(e) => setReservationFormData({ ...reservationFormData, mac: e.target.value })} placeholder="00:11:22:33:44:55" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ip">IP адрес</Label>
+                  <Input id="ip" value={reservationFormData.ip} onChange={(e) => setReservationFormData({ ...reservationFormData, ip: e.target.value })} placeholder="192.168.1.50" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="description">Описание</Label>
+                  <Input id="description" value={reservationFormData.description} onChange={(e) => setReservationFormData({ ...reservationFormData, description: e.target.value })} placeholder="Принтер офис" />
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Отмена</Button>
-            <Button onClick={handleSave} className="bg-blue-600 hover:bg-blue-700">Сохранить</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Отмена
+            </Button>
+            <Button onClick={handleSave} className="bg-blue-600 hover:bg-blue-700">
+              Сохранить
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
