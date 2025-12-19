@@ -52,6 +52,9 @@ DEFAULT_CONFIG = {
     }
 }
 
+# Глобальный список ошибок консоли
+console_errors = []
+
 
 def check_config():
     """Проверка наличия и валидности конфига."""
@@ -70,6 +73,15 @@ def check_config():
         sys.exit(1)
     
     return config
+
+
+def check_console_errors(step_name: str):
+    """Проверка ошибок консоли после каждого шага."""
+    global console_errors
+    if console_errors:
+        errors_text = "\n".join(console_errors)
+        console_errors.clear()
+        raise AssertionError(f"Ошибки консоли на шаге '{step_name}':\n{errors_text}")
 
 
 def run_tests():
@@ -92,12 +104,27 @@ def run_tests():
         page = context.new_page()
         page.set_default_timeout(30000)
         
-        # Логирование консоли браузера (только ошибки и важные сообщения)
-        page.on("console", lambda msg: print(f"  [BROWSER] {msg.type}: {msg.text}") if msg.type in ['error', 'warning', 'log'] else None)
+        # Сбор ошибок консоли
+        def on_console(msg):
+            if msg.type == 'error':
+                console_errors.append(f"[CONSOLE ERROR] {msg.text}")
+            if msg.type in ['error', 'warning', 'log']:
+                print(f"  [BROWSER] {msg.type}: {msg.text}")
+        
+        page.on("console", on_console)
         
         # Логирование сетевых ошибок
-        page.on("requestfailed", lambda request: print(f"  [NETWORK FAIL] {request.url} - {request.failure}"))
-        page.on("response", lambda response: print(f"  [RESPONSE] {response.status} {response.url}") if response.status >= 400 else None)
+        def on_request_failed(request):
+            console_errors.append(f"[NETWORK FAIL] {request.url} - {request.failure}")
+            print(f"  [NETWORK FAIL] {request.url} - {request.failure}")
+        
+        def on_response(response):
+            if response.status >= 400:
+                console_errors.append(f"[HTTP {response.status}] {response.url}")
+                print(f"  [RESPONSE] {response.status} {response.url}")
+        
+        page.on("requestfailed", on_request_failed)
+        page.on("response", on_response)
         
         # Глобальный обработчик диалогов (confirm)
         page.on("dialog", lambda dialog: dialog.accept())
@@ -105,12 +132,15 @@ def run_tests():
         try:
             # 1. Проверка доступности сервера
             print("\n[1/13] Проверка доступности сервера...")
+            console_errors.clear()
             page.goto(frontend_url)
             expect(page.locator("h1")).to_contain_text("LDC Panel")
             print("✓ Сервер доступен")
+            check_console_errors("Проверка доступности сервера")
             
             # 2. Вход в панель
             print("\n[2/13] Вход в панель...")
+            console_errors.clear()
             page.fill("#username", config["login"]["username"])
             page.fill("#password", config["login"]["password"])
             page.screenshot(path="tests/before_login.png")
@@ -120,6 +150,7 @@ def run_tests():
             # Ждём загрузки главной страницы
             expect(page.locator("text=Текущий сервер")).to_be_visible(timeout=10000)
             print("✓ Вход выполнен")
+            check_console_errors("Вход в панель")
             
             # 3. Добавление контроллера
             print("\n[3/13] Добавление контроллера...")
@@ -276,7 +307,7 @@ def run_tests():
             # Добавление
             page.click("button:has-text('Добавить')")
             page.wait_for_timeout(300)
-            page.fill("#zone", config["test_dns"]["zone"])
+            # Зона уже выбрана в селекте, заполняем только имя, значение и TTL
             page.fill("#name", config["test_dns"]["name"])
             page.fill("#value", config["test_dns"]["value"])
             page.fill("#ttl", config["test_dns"]["ttl"])

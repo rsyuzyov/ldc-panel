@@ -1,3 +1,4 @@
+
 """Samba-tool command generation"""
 from typing import Optional
 from app.models.dns import DNSRecordType
@@ -51,23 +52,6 @@ def generate_dns_delete_command(
         return f'{base_cmd} "{data}" {KERBEROS_FLAG}'
     
     return f"{base_cmd} {data} {KERBEROS_FLAG}"
-
-
-def generate_dns_query_command(
-    server: str,
-    zone: str,
-    name: str = "@",
-    record_type: Optional[str] = None,
-) -> str:
-    """Generate samba-tool dns query command."""
-    cmd = f"samba-tool dns query {server} {zone} {name}"
-    
-    if record_type:
-        cmd += f" {record_type}"
-    else:
-        cmd += " ALL"
-    
-    return f"{cmd} {KERBEROS_FLAG}"
 
 
 def generate_dns_zonelist_command(server: str) -> str:

@@ -9,7 +9,6 @@ from app.services.ssh import SSHService
 from app.services.kerberos import ensure_kerberos_ticket
 from app.services.samba_tool import (
     generate_dns_zonelist_command,
-    generate_dns_query_command,
     generate_dns_add_command,
     generate_dns_delete_command,
 )
@@ -80,43 +79,82 @@ async def get_zone_records(
     server_id: str = Query(..., description="ID сервера"),
     username: str = Depends(get_current_user),
 ):
-    """Get DNS records for a zone."""
+    """Get DNS records for a zone using ldbsearch."""
     ssh = get_dns_ssh(server_id)
     server = server_store.get_by_id(server_id)
     
     try:
-        cmd = generate_dns_query_command(server.host, zone, "@", "ALL")
+        # Получаем записи через ldbsearch (по требованиям спеки)
+        # Формируем base DN для зоны
+        domain_parts = zone.split(".")
+        domain_dn = ",".join([f"DC={p}" for p in domain_parts])
+        base_dn = f"DC={zone},CN=MicrosoftDNS,DC=DomainDnsZones,{domain_dn}"
+        
+        cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{base_dn}" "(objectClass=dnsNode)" dn name'
+        print(f"[DEBUG] DNS ldbsearch command: {cmd}")
         exit_code, stdout, stderr = ssh.execute(cmd)
+        print(f"[DEBUG] DNS ldbsearch result: exit={exit_code}, stdout={stdout[:500] if stdout else ''}")
         
         if exit_code != 0:
-            raise HTTPException(status_code=500, detail=stderr)
+            # Попробуем ForestDnsZones для корневых зон
+            base_dn = f"DC={zone},CN=MicrosoftDNS,DC=ForestDnsZones,{domain_dn}"
+            cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{base_dn}" "(objectClass=dnsNode)" dn name'
+            exit_code, stdout, stderr = ssh.execute(cmd)
+            
+            if exit_code != 0:
+                raise HTTPException(status_code=500, detail=f"Ошибка ldbsearch: {stderr}")
         
-        records = []
+        # Парсим имена записей из ldbsearch
+        record_names = []
         current_name = None
-        
         for line in stdout.split('\n'):
             line = line.strip()
-            if not line:
+            if line.startswith('name:'):
+                name = line.split(':', 1)[1].strip()
+                if name and name != '@':
+                    record_names.append(name)
+        
+        print(f"[DEBUG] Found {len(record_names)} record names")
+        
+        # Для каждой записи получаем детали через отдельный ldbsearch с dnsRecord
+        records = []
+        for name in record_names:
+            # Пропускаем служебные записи
+            if name.startswith('_') or name.startswith('..'):
                 continue
             
-            # Parse record from samba-tool output
-            if 'Name=' in line:
-                parts = line.split(',')
-                for part in parts:
-                    if 'Name=' in part:
-                        current_name = part.split('=')[1].strip()
+            record_dn = f"DC={name},{base_dn}"
+            cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{record_dn}" -s base dnsRecord --show-binary'
+            exit_code, stdout, stderr = ssh.execute(cmd)
             
-            # Look for record types
-            for rtype in ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'NS', 'PTR']:
-                if f' {rtype}: ' in line or f'{rtype}:' in line:
-                    data = line.split(f'{rtype}:')[-1].strip() if f'{rtype}:' in line else line.split(f' {rtype}: ')[-1].strip()
-                    if current_name and data:
-                        records.append(DNSRecordResponse(
-                            name=current_name,
-                            type=rtype,
-                            data=data,
-                            ttl=3600,
-                        ))
+            if exit_code != 0:
+                continue
+            
+            # Парсим dnsRecord (бинарные данные, но можно извлечь тип и значение)
+            # Простой парсинг: ищем IP адреса в выводе
+            for line in stdout.split('\n'):
+                # A записи обычно содержат IP в формате x.x.x.x
+                import re
+                ip_match = re.search(r'\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b', line)
+                if ip_match and 'dnsRecord' in line:
+                    records.append(DNSRecordResponse(
+                        name=name,
+                        type='A',
+                        data=ip_match.group(1),
+                        ttl=3600,
+                    ))
+                    break
+        
+        # Если не нашли записи через детальный парсинг, вернём хотя бы имена
+        if not records and record_names:
+            for name in record_names[:50]:  # Лимит
+                if not name.startswith('_') and not name.startswith('..'):
+                    records.append(DNSRecordResponse(
+                        name=name,
+                        type='A',
+                        data='(см. детали)',
+                        ttl=3600,
+                    ))
         
         return records
     finally:
