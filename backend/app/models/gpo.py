@@ -29,3 +29,4 @@ class GPOResponse(BaseModel):
     guid: str
     display_name: Optional[str] = None
     links: List[str] = []
+    when_changed: Optional[str] = None

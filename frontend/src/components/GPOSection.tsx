@@ -8,7 +8,6 @@ interface GPO {
   status: string
   linkedTo: string
   modifiedDate: string
-  description: string
 }
 
 interface GPOSectionProps {
@@ -28,12 +27,11 @@ export function GPOSection({ serverId }: GPOSectionProps) {
     try {
       const data = await api.getGpos(serverId)
       setGpos(data.map((g: any, i: number) => ({
-        id: g.id || g.dn || String(i),
-        name: g.name || g.displayName || '',
-        status: g.enabled !== false ? 'Включена' : 'Отключена',
-        linkedTo: Array.isArray(g.linkedTo) ? g.linkedTo.join(', ') : (g.linkedTo || g.gPCFileSysPath || ''),
-        modifiedDate: g.modifiedDate || g.whenChanged || '',
-        description: g.description || '',
+        id: g.id || g.guid || String(i),
+        name: g.name || g.display_name || g.guid || '',
+        status: 'Включена',
+        linkedTo: Array.isArray(g.links) ? g.links.join(', ') : (g.linkedTo || ''),
+        modifiedDate: g.when_changed || g.modifiedDate || '',
       })))
     } catch (e) {
       console.error('Failed to load GPOs:', e)
@@ -52,11 +50,10 @@ export function GPOSection({ serverId }: GPOSectionProps) {
       title="Групповые политики (GPO)"
       description="Просмотр групповых политик Active Directory (только чтение)"
       columns={[
-        { key: 'name', label: 'Название политики', width: '25%' },
-        { key: 'status', label: 'Статус', width: '12%' },
-        { key: 'linkedTo', label: 'Привязана к', width: '25%' },
-        { key: 'modifiedDate', label: 'Дата изменения', width: '18%' },
-        { key: 'description', label: 'Описание', width: '20%' },
+        { key: 'name', label: 'Название политики', width: '30%' },
+        { key: 'status', label: 'Статус', width: '15%' },
+        { key: 'linkedTo', label: 'Привязана к', width: '30%' },
+        { key: 'modifiedDate', label: 'Дата изменения', width: '25%' },
       ]}
       data={gpos}
       searchPlaceholder="Поиск политик..."

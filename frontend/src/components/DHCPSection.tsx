@@ -154,12 +154,11 @@ export function DHCPSection({ serverId }: DHCPSectionProps) {
             title="Области DHCP"
             description="Настроенные DHCP области (только просмотр)"
             columns={[
-              { key: 'name', label: 'Название', width: '15%' },
-              { key: 'network', label: 'Сеть', width: '15%' },
-              { key: 'rangeStart', label: 'Начало', width: '15%' },
-              { key: 'rangeEnd', label: 'Конец', width: '15%' },
+              { key: 'network', label: 'Сеть', width: '20%' },
+              { key: 'rangeStart', label: 'Начало диапазона', width: '18%' },
+              { key: 'rangeEnd', label: 'Конец диапазона', width: '18%' },
               { key: 'gateway', label: 'Шлюз', width: '15%' },
-              { key: 'dns', label: 'DNS', width: '15%' },
+              { key: 'dns', label: 'DNS серверы', width: '20%' },
             ]}
             data={scopes}
             searchPlaceholder="Поиск областей..."

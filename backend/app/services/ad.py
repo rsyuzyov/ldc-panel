@@ -2,6 +2,7 @@
 from typing import List, Optional, Tuple
 import tempfile
 import os
+import base64
 
 from app.models.server import ServerConfig
 from app.models.ad import ADUser, ADComputer, ADGroup
@@ -26,7 +27,10 @@ class ADService:
         self.base_dn = server.base_dn or ""
     
     def _parse_ldbsearch_output(self, output: str) -> List[dict]:
-        """Parse ldbsearch output into list of dictionaries."""
+        """Parse ldbsearch output into list of dictionaries.
+        
+        Handles base64 encoded values (format: key:: base64value)
+        """
         entries = []
         current_entry = {}
         
@@ -38,15 +42,25 @@ class ADService:
                     current_entry = {}
                 continue
             
-            if ': ' in line:
+            # Base64 encoded value (key:: value)
+            if ':: ' in line:
+                key, value = line.split(':: ', 1)
+                try:
+                    value = base64.b64decode(value).decode('utf-8')
+                except Exception:
+                    pass  # Keep original if decode fails
+            elif ': ' in line:
                 key, value = line.split(': ', 1)
-                if key in current_entry:
-                    if isinstance(current_entry[key], list):
-                        current_entry[key].append(value)
-                    else:
-                        current_entry[key] = [current_entry[key], value]
+            else:
+                continue
+                
+            if key in current_entry:
+                if isinstance(current_entry[key], list):
+                    current_entry[key].append(value)
                 else:
-                    current_entry[key] = value
+                    current_entry[key] = [current_entry[key], value]
+            else:
+                current_entry[key] = value
         
         if current_entry:
             entries.append(current_entry)
@@ -62,9 +76,10 @@ class ADService:
         Returns:
             Tuple of (users, error_message)
         """
-        ldap_filter = "(objectClass=user)"
+        # Пользователи: исключаем компьютеры ($) и managed service accounts
+        ldap_filter = "(&(objectClass=user)(!(objectClass=computer))(!(objectClass=msDS-ManagedServiceAccount))(!(objectClass=msDS-GroupManagedServiceAccount)))"
         if filter_str:
-            ldap_filter = f"(&(objectClass=user)(|(cn=*{filter_str}*)(sAMAccountName=*{filter_str}*)(mail=*{filter_str}*)))"
+            ldap_filter = f"(&(objectClass=user)(!(objectClass=computer))(!(objectClass=msDS-ManagedServiceAccount))(!(objectClass=msDS-GroupManagedServiceAccount))(|(cn=*{filter_str}*)(sAMAccountName=*{filter_str}*)(mail=*{filter_str}*)))"
         
         cmd = f'ldbsearch -H /var/lib/samba/private/sam.ldb "{ldap_filter}" dn cn sAMAccountName sn givenName mail userPrincipalName memberOf userAccountControl'
         

@@ -118,6 +118,19 @@ class ApiClient {
     return this.request<any[]>(`/ad/users?${params}`)
   }
 
+  // AD Computers
+  async getComputers(serverId: string, search?: string) {
+    const params = new URLSearchParams({ server_id: serverId })
+    if (search) params.append('search', search)
+    return this.request<any[]>(`/ad/computers?${params}`)
+  }
+
+  // AD Service Accounts (MSA/gMSA)
+  async getServiceAccounts(serverId: string) {
+    const params = new URLSearchParams({ server_id: serverId })
+    return this.request<any[]>(`/ad/service-accounts?${params}`)
+  }
+
   async createUser(serverId: string, data: { username: string; fullName: string; email: string; groups: string; password?: string }) {
     // Преобразуем поля фронтенда в формат API
     const apiData = {
@@ -178,8 +191,10 @@ class ApiClient {
     })
   }
 
-  async deleteDnsRecord(serverId: string, zone: string, name: string, type: string) {
-    return this.request(`/dns/zones/${zone}/records/${name}/${type}?server_id=${serverId}`, { method: 'DELETE' })
+  async deleteDnsRecord(serverId: string, zone: string, name: string, type: string, value?: string) {
+    const params = new URLSearchParams({ server_id: serverId })
+    if (value) params.append('value', value)
+    return this.request(`/dns/zones/${zone}/records/${name}/${type}?${params}`, { method: 'DELETE' })
   }
 
   // DHCP

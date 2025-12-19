@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Search, Plus, Pencil, Trash2 } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { Search, Plus, Pencil, Trash2, ChevronUp, ChevronDown } from 'lucide-react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 
@@ -14,11 +14,13 @@ export interface DataTableProps<T> {
   description: string
   columns: Column[]
   data: T[]
-  onAdd: () => void
-  onEdit: (item: T) => void
-  onDelete: (item: T) => void
+  onAdd?: () => void
+  onEdit?: (item: T) => void
+  onDelete?: (item: T) => void
   searchPlaceholder?: string
 }
+
+type SortDirection = 'asc' | 'desc'
 
 export function DataTable<T extends { id: string | number }>({
   title,
@@ -31,11 +33,40 @@ export function DataTable<T extends { id: string | number }>({
   searchPlaceholder = 'Поиск...',
 }: DataTableProps<T>) {
   const [searchQuery, setSearchQuery] = useState('')
+  const [sortKey, setSortKey] = useState<string>(columns[0]?.key || '')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
 
-  const filteredData = data.filter((item) => {
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDirection('asc')
+    }
+  }
+
+  const sortedData = useMemo(() => {
     const searchLower = searchQuery.toLowerCase()
-    return Object.values(item).some((value) => String(value).toLowerCase().includes(searchLower))
-  })
+    const filtered = data.filter((item) =>
+      Object.values(item).some((value) => String(value).toLowerCase().includes(searchLower))
+    )
+
+    if (!sortKey) return filtered
+
+    return [...filtered].sort((a, b) => {
+      const aVal = (a as Record<string, unknown>)[sortKey]
+      const bVal = (b as Record<string, unknown>)[sortKey]
+      const aStr = String(aVal ?? '').toLowerCase()
+      const bStr = String(bVal ?? '').toLowerCase()
+
+      if (sortDirection === 'asc') {
+        return aStr.localeCompare(bStr, 'ru', { numeric: true })
+      }
+      return bStr.localeCompare(aStr, 'ru', { numeric: true })
+    })
+  }, [data, searchQuery, sortKey, sortDirection])
+
+  const showActions = onAdd || onEdit || onDelete
 
   return (
     <div className="space-y-4">
@@ -49,10 +80,12 @@ export function DataTable<T extends { id: string | number }>({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <Input type="text" placeholder={searchPlaceholder} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9" />
         </div>
-        <Button onClick={onAdd} className="bg-blue-600 hover:bg-blue-700">
-          <Plus className="w-4 h-4 mr-2" />
-          Добавить
-        </Button>
+        {onAdd && (
+          <Button onClick={onAdd} className="bg-blue-600 hover:bg-blue-700">
+            <Plus className="w-4 h-4 mr-2" />
+            Добавить
+          </Button>
+        )}
       </div>
 
       <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -61,38 +94,54 @@ export function DataTable<T extends { id: string | number }>({
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
                 {columns.map((column) => (
-                  <th key={column.key} className="px-4 py-3 text-left text-sm font-medium text-gray-700" style={{ width: column.width }}>
-                    {column.label}
+                  <th
+                    key={column.key}
+                    className="px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100 select-none"
+                    style={{ width: column.width }}
+                    onClick={() => handleSort(column.key)}
+                  >
+                    <div className="flex items-center gap-1">
+                      {column.label}
+                      {sortKey === column.key && (
+                        sortDirection === 'asc' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />
+                      )}
+                    </div>
                   </th>
                 ))}
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 w-32">Действия</th>
+                {showActions && <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 w-32">Действия</th>}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredData.length === 0 ? (
+              {sortedData.length === 0 ? (
                 <tr>
-                  <td colSpan={columns.length + 1} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={columns.length + (showActions ? 1 : 0)} className="px-4 py-8 text-center text-gray-500">
                     {searchQuery ? 'Ничего не найдено' : 'Нет данных'}
                   </td>
                 </tr>
               ) : (
-                filteredData.map((item) => (
+                sortedData.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                     {columns.map((column) => (
                       <td key={column.key} className="px-4 py-3 text-sm text-gray-900">
                         {String((item as Record<string, unknown>)[column.key] ?? '')}
                       </td>
                     ))}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => onEdit(item)} className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Редактировать">
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => onDelete(item)} className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors" title="Удалить">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
+                    {showActions && (
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          {onEdit && (
+                            <button onClick={() => onEdit(item)} className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Редактировать">
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
+                          {onDelete && (
+                            <button onClick={() => onDelete(item)} className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors" title="Удалить">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
@@ -102,7 +151,7 @@ export function DataTable<T extends { id: string | number }>({
       </div>
 
       <div className="text-sm text-gray-600">
-        Всего записей: {filteredData.length} {searchQuery && `из ${data.length}`}
+        Всего записей: {sortedData.length} {searchQuery && `из ${data.length}`}
       </div>
     </div>
   )

@@ -88,8 +88,8 @@ export function DNSSection({ serverId }: DNSSectionProps) {
   const handleDelete = async (record: DNSRecord) => {
     if (confirm(`Удалить DNS запись ${record.name} (${record.type})?`)) {
       try {
-        await api.deleteDnsRecord(serverId, record.zone, record.name, record.type)
-        setRecords(records.filter((r) => r.id !== record.id))
+        await api.deleteDnsRecord(serverId, record.zone, record.name, record.type, record.value)
+        await loadRecords(currentZone)
       } catch (e: any) {
         alert(e.message)
       }

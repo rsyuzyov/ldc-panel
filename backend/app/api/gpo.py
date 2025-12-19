@@ -35,7 +35,14 @@ def get_gpo_ssh(server_id: str) -> SSHService:
 
 
 def parse_gpo_list(output: str) -> List[GPO]:
-    """Parse samba-tool gpo listall output."""
+    """Parse samba-tool gpo listall output.
+    
+    Output format:
+    GPO          : {GUID}
+    display name : Policy Name
+    path         : \\domain\sysvol\...
+    dn           : CN={GUID},CN=Policies,...
+    """
     gpos = []
     current_gpo = {}
     
@@ -43,10 +50,11 @@ def parse_gpo_list(output: str) -> List[GPO]:
         line = line.strip()
         if not line:
             if current_gpo:
+                display_name = current_gpo.get('display name', current_gpo.get('displayname', ''))
                 gpos.append(GPO(
-                    name=current_gpo.get('displayname', current_gpo.get('name', '')),
+                    name=display_name or current_gpo.get('gpo', ''),
                     guid=current_gpo.get('gpo', ''),
-                    display_name=current_gpo.get('displayname'),
+                    display_name=display_name,
                     path=current_gpo.get('path'),
                 ))
                 current_gpo = {}
@@ -57,14 +65,62 @@ def parse_gpo_list(output: str) -> List[GPO]:
             current_gpo[key.strip().lower()] = value.strip()
     
     if current_gpo:
+        display_name = current_gpo.get('display name', current_gpo.get('displayname', ''))
         gpos.append(GPO(
-            name=current_gpo.get('displayname', current_gpo.get('name', '')),
+            name=display_name or current_gpo.get('gpo', ''),
             guid=current_gpo.get('gpo', ''),
-            display_name=current_gpo.get('displayname'),
+            display_name=display_name,
             path=current_gpo.get('path'),
         ))
     
     return gpos
+
+
+def get_gpo_details(ssh: SSHService, guid: str) -> dict:
+    """Get GPO details from LDAP (links, whenChanged)."""
+    # Убираем фигурные скобки для поиска
+    clean_guid = guid.strip('{}')
+    
+    # Ищем GPO в LDAP
+    cmd = f'ldbsearch -H /var/lib/samba/private/sam.ldb "(objectClass=groupPolicyContainer)" dn displayName whenChanged gPCFileSysPath'
+    exit_code, stdout, stderr = ssh.execute(cmd)
+    
+    details = {}
+    if exit_code == 0:
+        current = {}
+        for line in stdout.split('\n'):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                if current and clean_guid.lower() in current.get('dn', '').lower():
+                    details = current
+                    break
+                current = {}
+                continue
+            if ': ' in line:
+                key, value = line.split(': ', 1)
+                current[key] = value
+        if current and clean_guid.lower() in current.get('dn', '').lower():
+            details = current
+    
+    # Ищем линки GPO (где gPLink содержит этот GUID)
+    links = []
+    cmd2 = f'ldbsearch -H /var/lib/samba/private/sam.ldb "(gPLink=*{clean_guid}*)" dn'
+    exit_code2, stdout2, stderr2 = ssh.execute(cmd2)
+    
+    if exit_code2 == 0:
+        for line in stdout2.split('\n'):
+            if line.startswith('dn: '):
+                dn = line[4:].strip()
+                # Упрощаем DN для отображения
+                if 'DC=' in dn:
+                    parts = dn.split(',')
+                    simple = parts[0].replace('OU=', '').replace('CN=', '').replace('DC=', '')
+                    links.append(simple)
+    
+    return {
+        'whenChanged': details.get('whenChanged', ''),
+        'links': links,
+    }
 
 
 @router.get("", response_model=List[GPOResponse])
@@ -84,15 +140,18 @@ async def get_gpos(
         
         gpos = parse_gpo_list(stdout)
         
-        return [
-            GPOResponse(
+        result = []
+        for g in gpos:
+            details = get_gpo_details(ssh, g.guid)
+            result.append(GPOResponse(
                 name=g.name,
                 guid=g.guid,
                 display_name=g.display_name,
-                links=[],
-            )
-            for g in gpos
-        ]
+                links=details['links'],
+                when_changed=details['whenChanged'],
+            ))
+        
+        return result
     finally:
         ssh.disconnect()
 
