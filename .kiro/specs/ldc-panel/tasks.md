@@ -1,0 +1,291 @@
+# Implementation Plan
+
+- [ ] 1. Инициализация проекта
+  - [ ] 1.1 Создать структуру backend (FastAPI)
+    - Создать директории app/, app/api/, app/services/, app/models/, app/auth/
+    - Создать requirements.txt с зависимостями
+    - Создать main.py с базовым FastAPI приложением
+    - _Requirements: 7.2_
+  - [ ] 1.2 Создать структуру frontend (React)
+    - Скопировать компоненты из assets/figma/src/
+    - Настроить Vite и TypeScript
+    - Настроить Tailwind CSS
+    - _Requirements: 7.2_
+  - [ ] 1.3 Создать конфигурационные файлы
+    - Создать config.py с настройками приложения
+    - Создать servers.yaml с примером конфигурации
+    - Создать директорию keys/ для SSH ключей
+    - _Requirements: 11.1_
+
+- [ ] 2. Аутентификация
+  - [ ] 2.1 Реализовать PAM аутентификацию
+    - Создать app/auth/pam.py с проверкой через python-pam
+    - Проверка что пользователь является root
+    - _Requirements: 1.2, 1.4_
+  - [ ] 2.2 Property test: Non-root rejection
+    - **Property 2: Non-root rejection**
+    - **Validates: Requirements 1.4**
+  - [ ] 2.3 Реализовать JWT сессии
+    - Создать app/auth/session.py с генерацией и валидацией JWT
+    - TTL 8 часов
+    - _Requirements: 1.2, 1.5_
+  - [ ] 2.4 Property test: Session TTL correctness
+    - **Property 1: Session TTL correctness**
+    - **Validates: Requirements 1.2**
+  - [ ] 2.5 Property test: Logout invalidates session
+    - **Property 3: Logout invalidates session**
+    - **Validates: Requirements 1.5**
+  - [ ] 2.6 Создать API endpoints аутентификации
+    - POST /api/auth/login
+    - POST /api/auth/logout
+    - GET /api/auth/me
+    - _Requirements: 1.1, 1.2, 1.3, 1.5_
+
+- [ ] 3. Управление серверами
+  - [ ] 3.1 Реализовать модели серверов
+    - Создать app/models/server.py с Pydantic моделями
+    - ServerConfig, ServerCreate, ServerStatus
+    - _Requirements: 2.2_
+  - [ ] 3.2 Реализовать YAML хранилище
+    - Создать app/services/server_store.py
+    - Загрузка/сохранение servers.yaml
+    - _Requirements: 11.1, 11.2, 11.3_
+  - [ ] 3.3 Property test: Server config round-trip
+    - **Property 5: Server config round-trip**
+    - **Validates: Requirements 2.5, 11.1, 11.2**
+  - [ ] 3.4 Реализовать SSH сервис
+    - Создать app/services/ssh.py с paramiko
+    - Подключение по ключу или паролю
+    - Выполнение команд
+    - _Requirements: 2.4_
+  - [ ] 3.5 Реализовать сохранение SSH ключей
+    - Загрузка ключа через API
+    - Сохранение в keys/ с правами 600
+    - _Requirements: 2.3_
+  - [ ] 3.6 Property test: SSH key permissions
+    - **Property 4: SSH key permissions**
+    - **Validates: Requirements 2.3**
+  - [ ] 3.7 Реализовать проверку сервисов на DC
+    - Проверка samba-ad-dc, bind9, isc-dhcp-server через systemctl
+    - _Requirements: 2.4, 2.5_
+  - [ ] 3.8 Property test: Service availability affects menu
+    - **Property 6: Service availability affects menu**
+    - **Validates: Requirements 2.8**
+  - [ ] 3.9 Создать API endpoints серверов
+    - GET/POST/DELETE /api/servers
+    - POST /api/servers/{id}/test
+    - POST /api/servers/{id}/select
+    - _Requirements: 2.1, 2.2, 2.7_
+
+- [ ] 4. Checkpoint
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 5. AD: Пользователи
+  - [ ] 5.1 Реализовать модели AD
+    - Создать app/models/ad.py
+    - ADUser, ADComputer, ADGroup
+    - _Requirements: 3.1, 4.1, 5.1_
+  - [ ] 5.2 Реализовать генератор LDIF команд
+    - Создать app/services/ldap_cmd.py
+    - Генерация LDIF для add/modify/delete
+    - Кодировка unicodePwd
+    - _Requirements: 3.3, 3.4, 3.5, 3.6_
+  - [ ] 5.3 Property test: LDIF add generation
+    - **Property 8: LDIF add generation**
+    - **Validates: Requirements 3.3**
+  - [ ] 5.4 Property test: LDIF modify generation
+    - **Property 9: LDIF modify generation**
+    - **Validates: Requirements 3.4**
+  - [ ] 5.5 Property test: Password encoding
+    - **Property 10: Password encoding**
+    - **Validates: Requirements 3.6**
+  - [ ] 5.6 Реализовать сервис AD операций
+    - Создать app/services/ad.py
+    - Выполнение ldbsearch, ldapmodify, ldapdelete через SSH
+    - _Requirements: 3.1, 3.3, 3.4, 3.5_
+  - [ ] 5.7 Создать API endpoints пользователей
+    - GET/POST/PATCH/DELETE /api/ad/users
+    - POST /api/ad/users/{dn}/password
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
+  - [ ] 5.8 Property test: Search filter correctness
+    - **Property 7: Search filter correctness**
+    - **Validates: Requirements 3.2**
+
+- [ ] 6. AD: Компьютеры и Группы
+  - [ ] 6.1 Создать API endpoints компьютеров
+    - GET/POST/DELETE /api/ad/computers
+    - _Requirements: 4.1, 4.2, 4.3_
+  - [ ] 6.2 Создать API endpoints групп
+    - GET/POST/DELETE /api/ad/groups
+    - POST/DELETE /api/ad/groups/{dn}/members
+    - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
+
+- [ ] 7. DNS
+  - [ ] 7.1 Реализовать модели DNS
+    - Создать app/models/dns.py
+    - DNSZone, DNSRecord (A, AAAA, CNAME, MX, TXT, SRV)
+    - _Requirements: 6.2_
+  - [ ] 7.2 Реализовать генератор команд samba-tool dns
+    - Создать app/services/samba_tool.py
+    - Команды dns add, dns delete, dns query
+    - _Requirements: 6.3, 6.4_
+  - [ ] 7.3 Property test: DNS command generation
+    - **Property 13: DNS command generation**
+    - **Validates: Requirements 6.3**
+  - [ ] 7.4 Создать API endpoints DNS
+    - GET /api/dns/zones
+    - GET/POST/DELETE /api/dns/zones/{zone}/records
+    - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
+
+- [ ] 8. Checkpoint
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 9. DHCP
+  - [ ] 9.1 Реализовать модели DHCP
+    - Создать app/models/dhcp.py
+    - DHCPSubnet, DHCPReservation, DHCPLease
+    - _Requirements: 7.1, 7.2, 7.3_
+  - [ ] 9.2 Реализовать парсер dhcpd.conf
+    - Создать app/services/dhcp_parser.py
+    - Парсинг subnet, host блоков
+    - Сериализация обратно в конфиг
+    - _Requirements: 7.4, 7.5, 7.6_
+  - [ ] 9.3 Property test: DHCP config round-trip
+    - **Property 12: DHCP config round-trip**
+    - **Validates: Requirements 7.4, 7.5, 7.6**
+  - [ ] 9.4 Реализовать парсер dhcpd.leases
+    - Парсинг активных аренд
+    - _Requirements: 7.3_
+  - [ ] 9.5 Создать API endpoints DHCP
+    - GET/POST/PATCH/DELETE /api/dhcp/subnets
+    - GET/POST/DELETE /api/dhcp/reservations
+    - GET /api/dhcp/leases
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
+
+- [ ] 10. GPO
+  - [ ] 10.1 Реализовать модели GPO
+    - Создать app/models/gpo.py
+    - GPO, GPOLink
+    - _Requirements: 8.1_
+  - [ ] 10.2 Реализовать команды samba-tool gpo
+    - Добавить в app/services/samba_tool.py
+    - gpo listall, gpo create, gpo del, gpo setlink
+    - _Requirements: 8.2, 8.3, 8.5_
+  - [ ] 10.3 Property test: GPO command generation
+    - **Property 14: GPO command generation**
+    - **Validates: Requirements 8.2, 8.3, 8.5**
+  - [ ] 10.4 Создать API endpoints GPO
+    - GET/POST/DELETE /api/gpo
+    - POST /api/gpo/{name}/link
+    - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
+
+- [ ] 11. Backup и Restore
+  - [ ] 11.1 Реализовать backup LDIF
+    - Выполнение ldapsearch через SSH
+    - Сохранение в /backups/ldif/
+    - _Requirements: 9.1_
+  - [ ] 11.2 Реализовать backup DHCP
+    - Копирование dhcpd.conf через SSH
+    - Сохранение в /backups/dhcp/
+    - _Requirements: 9.2_
+  - [ ] 11.3 Реализовать restore
+    - Восстановление LDIF через ldapadd
+    - Восстановление DHCP с reload сервиса
+    - _Requirements: 9.4, 9.5_
+  - [ ] 11.4 Создать API endpoints backup
+    - POST /api/backup/ldif
+    - POST /api/backup/dhcp
+    - GET /api/backup/list
+    - POST /api/restore/{type}/{filename}
+    - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
+
+- [ ] 12. Логирование
+  - [ ] 12.1 Реализовать логгер операций
+    - Создать app/logger.py
+    - Формат: timestamp, level, operator, action, object, details
+    - Запись в /var/log/ldc-panel.log
+    - _Requirements: 10.1, 10.2_
+  - [ ] 12.2 Property test: Operation logging
+    - **Property 11: Operation logging**
+    - **Validates: Requirements 3.7, 10.1**
+  - [ ] 12.3 Создать API endpoint логов
+    - GET /api/logs с фильтрацией
+    - _Requirements: 10.2_
+  - [ ] 12.4 Создать конфигурацию logrotate
+    - Ротация 1 год, сжатие gzip
+    - _Requirements: 10.3_
+
+- [ ] 13. Checkpoint
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 14. Frontend: Базовая структура
+  - [ ] 14.1 Настроить React приложение
+    - Скопировать компоненты из assets/figma/
+    - Настроить роутинг
+    - Настроить API клиент
+    - _Requirements: 1.1_
+  - [ ] 14.2 Реализовать страницу логина
+    - Форма логин/пароль
+    - Обработка ошибок
+    - Редирект после успешного входа
+    - _Requirements: 1.1, 1.2, 1.3_
+  - [ ] 14.3 Реализовать Sidebar с выбором сервера
+    - Выпадающий список серверов
+    - Отключение недоступных разделов
+    - Кнопка Logout
+    - _Requirements: 1.5, 2.7, 2.8_
+
+- [ ] 15. Frontend: Разделы
+  - [ ] 15.1 Реализовать раздел Серверы
+    - Список серверов
+    - Форма добавления с загрузкой ключа
+    - Проверка подключения
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
+  - [ ] 15.2 Реализовать раздел AD
+    - Табы: Пользователи, Компьютеры, Группы
+    - DataTable с поиском
+    - Диалоги добавления/редактирования
+    - _Requirements: 3.1, 3.2, 4.1, 5.1_
+  - [ ] 15.3 Реализовать раздел DNS
+    - Список зон
+    - Список записей зоны
+    - Формы добавления записей
+    - _Requirements: 6.1, 6.2_
+  - [ ] 15.4 Реализовать раздел DHCP
+    - Табы: Области, Резервирования, Аренды
+    - DataTable с поиском
+    - Формы редактирования
+    - _Requirements: 7.1, 7.2, 7.3_
+  - [ ] 15.5 Реализовать раздел GPO
+    - Список политик
+    - Создание и связывание GPO
+    - _Requirements: 8.1_
+  - [ ] 15.6 Реализовать раздел Backup
+    - Кнопки backup LDIF/DHCP
+    - Список бэкапов
+    - Восстановление
+    - _Requirements: 9.1, 9.2, 9.3_
+  - [ ] 15.7 Реализовать раздел Логи
+    - Таблица логов с фильтрацией
+    - _Requirements: 10.2_
+
+- [ ] 16. Deployment
+  - [ ] 16.1 Создать скрипт установки
+    - install.py с установкой зависимостей
+    - Создание директорий
+    - Настройка systemd сервиса
+    - _Requirements: 7.3_
+  - [ ] 16.2 Создать systemd unit файл
+    - gunicorn + uvicorn workers
+    - _Requirements: 7.2_
+  - [ ] 16.3 Создать конфигурацию nginx
+    - Reverse proxy
+    - HTTPS
+    - _Requirements: 10_
+
+- [ ] 17. Final Checkpoint
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 17.1 Property test: Server deletion removes from config
+  - **Property 15: Server deletion removes from config**
+  - **Validates: Requirements 11.3**
