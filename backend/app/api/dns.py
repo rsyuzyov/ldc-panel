@@ -11,6 +11,7 @@ from app.services.samba_tool import (
     generate_dns_zonelist_command,
     generate_dns_add_command,
     generate_dns_delete_command,
+    KERBEROS_FLAG,
 )
 
 router = APIRouter(prefix="/api/dns", tags=["dns"])
@@ -84,79 +85,111 @@ async def get_zone_records(
     server = server_store.get_by_id(server_id)
     
     try:
-        # Получаем записи через ldbsearch (по требованиям спеки)
-        # Формируем base DN для зоны
-        domain_parts = zone.split(".")
-        domain_dn = ",".join([f"DC={p}" for p in domain_parts])
+        import re
+        
+        # Формируем base_dn
+        if server.base_dn:
+            domain_dn = server.base_dn
+        else:
+            domain_parts = zone.split(".")
+            domain_dn = ",".join([f"DC={p}" for p in domain_parts])
+        
+        # DNS записи хранятся в DomainDnsZones
         base_dn = f"DC={zone},CN=MicrosoftDNS,DC=DomainDnsZones,{domain_dn}"
         
-        cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{base_dn}" "(objectClass=dnsNode)" dn name'
+        # Получаем записи через ldbsearch с dnsRecord
+        cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{base_dn}" "(objectClass=dnsNode)" name dnsRecord --show-binary'
         print(f"[DEBUG] DNS ldbsearch command: {cmd}")
         exit_code, stdout, stderr = ssh.execute(cmd)
-        print(f"[DEBUG] DNS ldbsearch result: exit={exit_code}, stdout={stdout[:500] if stdout else ''}")
+        print(f"[DEBUG] DNS ldbsearch result: exit={exit_code}")
+        if exit_code == 0:
+            # Ищем запись ldc-test-record для отладки
+            if 'ldc-test-record' in stdout:
+                idx = stdout.find('ldc-test-record')
+                print(f"[DEBUG] ldc-test-record context: {stdout[idx:idx+800]}")
         
         if exit_code != 0:
-            # Попробуем ForestDnsZones для корневых зон
             base_dn = f"DC={zone},CN=MicrosoftDNS,DC=ForestDnsZones,{domain_dn}"
-            cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{base_dn}" "(objectClass=dnsNode)" dn name'
+            cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{base_dn}" "(objectClass=dnsNode)" name dnsRecord --show-binary'
             exit_code, stdout, stderr = ssh.execute(cmd)
             
             if exit_code != 0:
                 raise HTTPException(status_code=500, detail=f"Ошибка ldbsearch: {stderr}")
         
-        # Парсим имена записей из ldbsearch
-        record_names = []
-        current_name = None
-        for line in stdout.split('\n'):
-            line = line.strip()
-            if line.startswith('name:'):
-                name = line.split(':', 1)[1].strip()
-                if name and name != '@':
-                    record_names.append(name)
-        
-        print(f"[DEBUG] Found {len(record_names)} record names")
-        
-        # Для каждой записи получаем детали через отдельный ldbsearch с dnsRecord
+        # Парсим записи - ищем пары name + IP в ipv4 строке
         records = []
-        for name in record_names:
-            # Пропускаем служебные записи
-            if name.startswith('_') or name.startswith('..'):
+        current_name = None
+        current_ips = []
+        
+        for line in stdout.split('\n'):
+            line_stripped = line.strip()
+            
+            if line_stripped.startswith('name:'):
+                # Сохраняем предыдущую запись
+                if current_name and current_ips:
+                    for ip in current_ips:
+                        records.append({
+                            'name': current_name,
+                            'type': 'A',
+                            'data': ip,
+                            'ttl': 3600,
+                        })
+                elif current_name:
+                    records.append({
+                        'name': current_name,
+                        'type': 'A',
+                        'data': '',
+                        'ttl': 3600,
+                    })
+                
+                current_name = line_stripped.split(':', 1)[1].strip()
+                current_ips = []
+            elif line_stripped.startswith('ipv4'):
+                # Формат: "ipv4                     : 192.168.1.251"
+                if ':' in line_stripped:
+                    ip = line_stripped.split(':', 1)[1].strip()
+                    if ip and re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip):
+                        current_ips.append(ip)
+        
+        # Последняя запись
+        if current_name and current_ips:
+            for ip in current_ips:
+                records.append({
+                    'name': current_name,
+                    'type': 'A',
+                    'data': ip,
+                    'ttl': 3600,
+                })
+        elif current_name:
+            records.append({
+                'name': current_name,
+                'type': 'A',
+                'data': '',
+                'ttl': 3600,
+            })
+        
+        # Фильтруем и формируем ответ
+        result = []
+        seen = set()
+        for rec in records:
+            name = rec.get('name', '')
+            if not name or name == '@' or name.startswith('_') or name.startswith('..'):
                 continue
             
-            record_dn = f"DC={name},{base_dn}"
-            cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{record_dn}" -s base dnsRecord --show-binary'
-            exit_code, stdout, stderr = ssh.execute(cmd)
-            
-            if exit_code != 0:
+            key = f"{name}:{rec.get('data', '')}"
+            if key in seen:
                 continue
+            seen.add(key)
             
-            # Парсим dnsRecord (бинарные данные, но можно извлечь тип и значение)
-            # Простой парсинг: ищем IP адреса в выводе
-            for line in stdout.split('\n'):
-                # A записи обычно содержат IP в формате x.x.x.x
-                import re
-                ip_match = re.search(r'\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b', line)
-                if ip_match and 'dnsRecord' in line:
-                    records.append(DNSRecordResponse(
-                        name=name,
-                        type='A',
-                        data=ip_match.group(1),
-                        ttl=3600,
-                    ))
-                    break
+            result.append(DNSRecordResponse(
+                name=name,
+                type=rec.get('type', 'A'),
+                data=rec.get('data', ''),
+                ttl=rec.get('ttl', 3600),
+            ))
         
-        # Если не нашли записи через детальный парсинг, вернём хотя бы имена
-        if not records and record_names:
-            for name in record_names[:50]:  # Лимит
-                if not name.startswith('_') and not name.startswith('..'):
-                    records.append(DNSRecordResponse(
-                        name=name,
-                        type='A',
-                        data='(см. детали)',
-                        ttl=3600,
-                    ))
-        
-        return records
+        print(f"[DEBUG] Found {len(result)} DNS records")
+        return result
     finally:
         ssh.disconnect()
 
@@ -169,10 +202,40 @@ async def create_record(
     username: str = Depends(get_current_user),
 ):
     """Create a DNS record."""
+    import re
+    print(f"[DEBUG] create_record: zone={zone}, record={record}")
     ssh = get_dns_ssh(server_id)
     server = server_store.get_by_id(server_id)
     
     try:
+        # Проверяем, существует ли запись, и удаляем если да
+        if server.base_dn:
+            domain_dn = server.base_dn
+        else:
+            domain_parts = zone.split(".")
+            domain_dn = ",".join([f"DC={p}" for p in domain_parts])
+        
+        base_dn = f"DC={zone},CN=MicrosoftDNS,DC=DomainDnsZones,{domain_dn}"
+        record_dn = f"DC={record.name},{base_dn}"
+        
+        check_cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{record_dn}" -s base dnsRecord --show-binary'
+        exit_code, stdout, stderr = ssh.execute(check_cmd)
+        
+        if exit_code == 0 and 'dnsRecord' in stdout:
+            # Запись существует — ищем старое значение и удаляем
+            ip_match = re.search(r'\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b', stdout)
+            if ip_match:
+                old_value = ip_match.group(1)
+                delete_cmd = generate_dns_delete_command(
+                    server=server.host,
+                    zone=zone,
+                    name=record.name,
+                    record_type=record.type,
+                    data=old_value,
+                )
+                print(f"[DEBUG] Deleting existing record: {delete_cmd}")
+                ssh.execute(delete_cmd)
+        
         cmd = generate_dns_add_command(
             server=server.host,
             zone=zone,
@@ -184,8 +247,10 @@ async def create_record(
             srv_weight=record.srv_weight,
             srv_port=record.srv_port,
         )
+        print(f"[DEBUG] DNS add command: {cmd}")
         
         exit_code, stdout, stderr = ssh.execute(cmd)
+        print(f"[DEBUG] DNS add result: exit={exit_code}, stdout={stdout}, stderr={stderr}")
         
         if exit_code != 0:
             raise HTTPException(status_code=500, detail=stderr)
@@ -200,15 +265,42 @@ async def delete_record(
     zone: str,
     name: str,
     record_type: str,
-    data: str = Query(..., description="Данные записи"),
+    data: Optional[str] = Query(None, description="Данные записи (опционально)"),
     server_id: str = Query(..., description="ID сервера"),
     username: str = Depends(get_current_user),
 ):
     """Delete a DNS record."""
+    import re
     ssh = get_dns_ssh(server_id)
     server = server_store.get_by_id(server_id)
     
     try:
+        # Если data не передан, ищем значение через ldbsearch
+        if not data:
+            if server.base_dn:
+                domain_dn = server.base_dn
+            else:
+                domain_parts = zone.split(".")
+                domain_dn = ",".join([f"DC={p}" for p in domain_parts])
+            
+            base_dn = f"DC={zone},CN=MicrosoftDNS,DC=DomainDnsZones,{domain_dn}"
+            record_dn = f"DC={name},{base_dn}"
+            
+            cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{record_dn}" -s base dnsRecord --show-binary'
+            exit_code, stdout, stderr = ssh.execute(cmd)
+            
+            if exit_code == 0:
+                # Ищем ipv4 строку
+                for line in stdout.split('\n'):
+                    if line.strip().startswith('ipv4'):
+                        parts = line.split(':', 1)
+                        if len(parts) == 2:
+                            data = parts[1].strip()
+                            break
+            
+            if not data:
+                raise HTTPException(status_code=404, detail="Запись не найдена")
+        
         cmd = generate_dns_delete_command(
             server=server.host,
             zone=zone,
@@ -223,5 +315,81 @@ async def delete_record(
             raise HTTPException(status_code=500, detail=stderr)
         
         return {"message": "DNS запись удалена"}
+    finally:
+        ssh.disconnect()
+
+
+@router.put("/zones/{zone}/records/{name}/{record_type}")
+async def update_record(
+    zone: str,
+    name: str,
+    record_type: str,
+    update_data: dict,
+    server_id: str = Query(..., description="ID сервера"),
+    username: str = Depends(get_current_user),
+):
+    """Update a DNS record (delete old + create new per Requirement 6.5)."""
+    import re
+    print(f"[DEBUG] update_record: zone={zone}, name={name}, type={record_type}, data={update_data}")
+    ssh = get_dns_ssh(server_id)
+    server = server_store.get_by_id(server_id)
+    
+    try:
+        new_value = update_data.get("value") or update_data.get("data")
+        if not new_value:
+            raise HTTPException(status_code=400, detail="Не указано новое значение")
+        
+        # Сначала получаем текущее значение записи для удаления
+        if server.base_dn:
+            domain_dn = server.base_dn
+        else:
+            domain_parts = zone.split(".")
+            domain_dn = ",".join([f"DC={p}" for p in domain_parts])
+        
+        base_dn = f"DC={zone},CN=MicrosoftDNS,DC=DomainDnsZones,{domain_dn}"
+        record_dn = f"DC={name},{base_dn}"
+        
+        cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{record_dn}" -s base dnsRecord --show-binary'
+        exit_code, stdout, stderr = ssh.execute(cmd)
+        print(f"[DEBUG] update ldbsearch: exit={exit_code}")
+        
+        old_value = None
+        if exit_code == 0:
+            ip_match = re.search(r'\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b', stdout)
+            if ip_match:
+                old_value = ip_match.group(1)
+        
+        print(f"[DEBUG] old_value={old_value}, new_value={new_value}")
+        
+        # Удаляем старую запись если нашли значение
+        if old_value:
+            delete_cmd = generate_dns_delete_command(
+                server=server.host,
+                zone=zone,
+                name=name,
+                record_type=DNSRecordType(record_type),
+                data=old_value,
+            )
+            print(f"[DEBUG] delete cmd: {delete_cmd}")
+            del_exit, del_out, del_err = ssh.execute(delete_cmd)
+            print(f"[DEBUG] delete result: exit={del_exit}, err={del_err}")
+        
+        # Создаём новую запись
+        add_cmd = generate_dns_add_command(
+            server=server.host,
+            zone=zone,
+            name=name,
+            record_type=DNSRecordType(record_type),
+            data=new_value,
+        )
+        print(f"[DEBUG] add cmd: {add_cmd}")
+        
+        exit_code, stdout, stderr = ssh.execute(add_cmd)
+        print(f"[DEBUG] add result: exit={exit_code}, out={stdout}, err={stderr}")
+        
+        if exit_code != 0:
+            raise HTTPException(status_code=500, detail=stderr)
+        
+        return {"message": "DNS запись обновлена"}
     finally:
         ssh.disconnect()

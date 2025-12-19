@@ -70,10 +70,11 @@ def parse_dhcpd_conf(content: str) -> Tuple[List[DHCPSubnet], List[DHCPReservati
         ip_match = re.search(r'fixed-address\s+(\d+\.\d+\.\d+\.\d+)', block)
         
         if mac_match and ip_match:
+            mac = mac_match.group(1)
             reservation = DHCPReservation(
-                id=str(uuid.uuid4())[:8],
+                id=mac.lower().replace(":", "-"),  # Используем MAC как ID
                 hostname=hostname,
-                mac=mac_match.group(1),
+                mac=mac,
                 ip=ip_match.group(1),
             )
             reservations.append(reservation)

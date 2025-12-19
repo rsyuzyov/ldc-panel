@@ -158,9 +158,16 @@ class ApiClient {
   }
 
   async createDnsRecord(serverId: string, zone: string, data: { name: string; type: string; value: string; ttl: number }) {
+    // Преобразуем value в data для бэкенда
+    const apiData = {
+      name: data.name,
+      type: data.type,
+      data: data.value,
+      ttl: data.ttl,
+    }
     return this.request<any>(`/dns/zones/${zone}/records?server_id=${serverId}`, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(apiData),
     })
   }
 
@@ -196,7 +203,9 @@ class ApiClient {
   }
 
   async deleteDhcpReservation(serverId: string, mac: string) {
-    return this.request(`/dhcp/reservations/${mac}?server_id=${serverId}`, { method: 'DELETE' })
+    // Преобразуем MAC в формат ID (lowercase с дефисами)
+    const reservationId = mac.toLowerCase().replace(/:/g, '-')
+    return this.request(`/dhcp/reservations/${reservationId}?server_id=${serverId}`, { method: 'DELETE' })
   }
 
   // GPO

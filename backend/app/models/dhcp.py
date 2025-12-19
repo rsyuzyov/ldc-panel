@@ -47,7 +47,8 @@ class DHCPReservation(BaseModel):
     def __init__(self, **data):
         super().__init__(**data)
         if not self.id:
-            self.id = str(uuid.uuid4())[:8]
+            # Используем MAC как ID для стабильности
+            self.id = self.mac.lower().replace(":", "-")
 
 
 class DHCPReservationCreate(BaseModel):

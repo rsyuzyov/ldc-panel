@@ -154,6 +154,7 @@ def run_tests():
             
             # 3. Добавление контроллера
             print("\n[3/13] Добавление контроллера...")
+            console_errors.clear()
             # Переход в раздел серверов
             page.click("button[title='Управление серверами']")
             page.wait_for_timeout(500)
@@ -202,9 +203,11 @@ def run_tests():
             # Ждём завершения проверки (статус изменится с "Проверка...")
             page.wait_for_timeout(3000)
             print("✓ Контроллер добавлен")
+            check_console_errors("Добавление контроллера")
             
             # 4. Выбор контроллера как текущего
             print("\n[4/13] Выбор контроллера как текущего...")
+            console_errors.clear()
             # Проверяем, что сервер автоматически выбран (если единственный активный)
             # или выбираем вручную
             select_trigger = page.locator("[data-slot='select-trigger']")
@@ -230,9 +233,11 @@ def run_tests():
                         print("⚠ Нет активных серверов для выбора (проверка не прошла)")
                 page.wait_for_timeout(300)
             print("✓ Контроллер выбран")
+            check_console_errors("Выбор контроллера")
             
             # 5. Переход в AD и проверка списка пользователей
             print("\n[5/13] Проверка раздела AD...")
+            console_errors.clear()
             page.click("button:has-text('AD')")
             page.wait_for_timeout(500)
             # Проверяем, что таблица не пустая
@@ -241,9 +246,11 @@ def run_tests():
             row_count = rows.count()
             assert row_count > 0, "Список пользователей пуст"
             print(f"✓ Раздел AD: найдено {row_count} записей")
+            check_console_errors("Проверка раздела AD")
             
             # 6. Создание тестового пользователя
             print("\n[6/13] Создание пользователя ldc-panel-test...")
+            console_errors.clear()
             # Удаляем тестового пользователя если он остался от предыдущего запуска
             existing_user = page.locator(f"tr:has-text('{config['test_user']['username']}')")
             if existing_user.count() > 0:
@@ -263,9 +270,11 @@ def run_tests():
             page.wait_for_timeout(1000)
             expect(page.locator(f"td:text-is('{config['test_user']['username']}')" )).to_be_visible()
             print("✓ Пользователь создан")
+            check_console_errors("Создание пользователя")
             
             # 7. Смена пароля (редактирование пользователя)
             print("\n[7/13] Смена пароля пользователя...")
+            console_errors.clear()
             # Ждём полного закрытия диалога
             page.wait_for_selector("[data-slot='dialog-overlay']", state="hidden", timeout=10000)
             page.wait_for_timeout(500)
@@ -278,17 +287,21 @@ def run_tests():
             page.click("button:has-text('Сохранить')")
             page.wait_for_timeout(500)
             print("✓ Пользователь обновлён")
+            check_console_errors("Редактирование пользователя")
             
             # 8. Удаление тестового пользователя
             print("\n[8/13] Удаление пользователя...")
+            console_errors.clear()
             user_row = page.locator(f"tr:has-text('{config['test_user']['username']}')")
             user_row.locator("button[title='Удалить']").click()
             page.wait_for_timeout(500)
             expect(page.locator(f"td:has-text('{config['test_user']['username']}')" )).to_have_count(0)
             print("✓ Пользователь удалён")
+            check_console_errors("Удаление пользователя")
             
             # 9. Переход в DNS и проверка списка
             print("\n[9/13] Проверка раздела DNS...")
+            console_errors.clear()
             dns_button = page.locator("button:has-text('DNS')")
             print(f"  DNS button visible: {dns_button.is_visible()}")
             print(f"  DNS button enabled: {dns_button.is_enabled()}")
@@ -296,6 +309,7 @@ def run_tests():
             page.wait_for_timeout(2000)  # Больше времени на загрузку
             # Проверяем что раздел переключился
             page.screenshot(path="tests/dns_section.png")
+            check_console_errors("Загрузка раздела DNS")
             rows = page.locator("tbody tr")
             expect(rows.first).to_be_visible(timeout=10000)
             row_count = rows.count()
@@ -304,39 +318,63 @@ def run_tests():
             
             # 10. Добавление, изменение, удаление DNS записи
             print("\n[10/13] CRUD операции с DNS записью...")
+            
+            # Удаляем существующие записи с таким именем (от предыдущих запусков)
+            deleted_count = 0
+            for _ in range(5):  # Максимум 5 попыток
+                existing_dns = page.locator(f"tr:has-text('{config['test_dns']['name']}')")
+                if existing_dns.count() > 0:
+                    print(f"  Удаляю существующую DNS запись...")
+                    existing_dns.first.locator("button[title='Удалить']").click()
+                    page.wait_for_timeout(1500)  # Ждём обновления таблицы
+                    deleted_count += 1
+                else:
+                    break
+            if deleted_count > 0:
+                print(f"  Удалено {deleted_count} старых записей")
+            console_errors.clear()  # Очищаем ошибки от удаления
+            
             # Добавление
+            console_errors.clear()
             page.click("button:has-text('Добавить')")
             page.wait_for_timeout(300)
-            # Зона уже выбрана в селекте, заполняем только имя, значение и TTL
             page.fill("#name", config["test_dns"]["name"])
             page.fill("#value", config["test_dns"]["value"])
             page.fill("#ttl", config["test_dns"]["ttl"])
             page.click("button:has-text('Сохранить')")
-            page.wait_for_timeout(500)
-            expect(page.locator(f"text={config['test_dns']['name']}")).to_be_visible()
+            page.wait_for_timeout(1500)  # Ждём обновления таблицы
+            check_console_errors("Добавление DNS записи")
+            # Проверяем что запись появилась
+            page.wait_for_selector(f"text={config['test_dns']['name']}", timeout=5000)
             print("  ✓ DNS запись добавлена")
             
             # Изменение
-            dns_row = page.locator(f"tr:has-text('{config['test_dns']['name']}')")
+            console_errors.clear()
+            dns_row = page.locator(f"tr:has-text('{config['test_dns']['name']}')").first
             dns_row.locator("button[title='Редактировать']").click()
             page.wait_for_timeout(300)
             page.fill("#value", config["test_dns"]["updated_value"])
             page.click("button:has-text('Сохранить')")
             page.wait_for_timeout(500)
+            check_console_errors("Изменение DNS записи")
             expect(page.locator(f"text={config['test_dns']['updated_value']}")).to_be_visible()
             print("  ✓ DNS запись изменена")
             
             # Удаление
-            dns_row = page.locator(f"tr:has-text('{config['test_dns']['name']}')")
+            console_errors.clear()
+            dns_row = page.locator(f"tr:has-text('{config['test_dns']['name']}')").first
             dns_row.locator("button[title='Удалить']").click()
             page.wait_for_timeout(500)
+            check_console_errors("Удаление DNS записи")
             expect(page.locator(f"td:has-text('{config['test_dns']['name']}')" )).to_have_count(0)
             print("  ✓ DNS запись удалена")
             
             # 11. Переход в DHCP и проверка списка
             print("\n[11/13] Проверка раздела DHCP...")
+            console_errors.clear()
             page.click("button:has-text('DHCP')")
             page.wait_for_timeout(500)
+            check_console_errors("Загрузка раздела DHCP")
             rows = page.locator("tbody tr")
             expect(rows.first).to_be_visible()
             row_count = rows.count()
@@ -345,9 +383,18 @@ def run_tests():
             
             # 12. Резервирование и отмена резервирования
             print("\n[12/13] Резервирование IP адреса...")
+            console_errors.clear()
             # Переключаемся на вкладку резервирований
             page.click("button[role='tab']:has-text('Резервирования')")
-            page.wait_for_timeout(300)
+            page.wait_for_timeout(500)
+            
+            # Удаляем существующее резервирование если есть
+            existing_dhcp = page.locator(f"tr:has-text('{config['test_dhcp']['hostname']}')")
+            if existing_dhcp.count() > 0:
+                print("  Удаляю существующее резервирование...")
+                existing_dhcp.first.locator("button[title='Удалить']").click()
+                page.wait_for_timeout(2000)
+            console_errors.clear()
             
             # Добавляем резервирование
             page.click("button:has-text('Добавить')")
@@ -357,21 +404,26 @@ def run_tests():
             page.fill("#ip", config["test_dhcp"]["ip"])
             page.fill("#description", config["test_dhcp"]["description"])
             page.click("button:has-text('Сохранить')")
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(2000)
+            check_console_errors("Добавление резервирования DHCP")
             expect(page.locator(f"text={config['test_dhcp']['hostname']}")).to_be_visible()
             print("  ✓ Резервирование создано")
             
             # Удаляем резервирование
+            console_errors.clear()
             dhcp_row = page.locator(f"tr:has-text('{config['test_dhcp']['hostname']}')")
             dhcp_row.locator("button[title='Удалить']").click()
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(2000)
+            check_console_errors("Удаление резервирования DHCP")
             expect(page.locator(f"td:has-text('{config['test_dhcp']['hostname']}')" )).to_have_count(0)
             print("  ✓ Резервирование отменено")
             
             # 13. Переход в GPO и проверка списка
             print("\n[13/13] Проверка раздела GPO...")
+            console_errors.clear()
             page.click("button:has-text('GPO')")
             page.wait_for_timeout(500)
+            check_console_errors("Загрузка раздела GPO")
             rows = page.locator("tbody tr")
             expect(rows.first).to_be_visible()
             row_count = rows.count()

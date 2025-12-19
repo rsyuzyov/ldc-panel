@@ -43,11 +43,19 @@ def load_dhcp_config(ssh: SSHService) -> tuple:
 def save_dhcp_config(ssh: SSHService, subnets: List[DHCPSubnet], reservations: List[DHCPReservation]):
     """Save DHCP config to server and reload service."""
     config = serialize_dhcpd_conf(subnets, reservations)
+    print(f"[DEBUG] Generated config:\n{config[:500]}")
     
-    # Check syntax first
-    exit_code, stdout, stderr = ssh.execute(f'echo "{config}" | dhcpd -t -cf /dev/stdin')
+    # Write config to temp file and check syntax
+    import base64
+    config_b64 = base64.b64encode(config.encode()).decode()
+    
+    # Записываем во временный файл и проверяем синтаксис
+    check_cmd = f'echo "{config_b64}" | base64 -d > /tmp/dhcpd_test.conf && dhcpd -t -cf /tmp/dhcpd_test.conf 2>&1'
+    exit_code, stdout, stderr = ssh.execute(check_cmd)
+    print(f"[DEBUG] Syntax check: exit={exit_code}, output={stdout}")
+    
     if exit_code != 0:
-        raise HTTPException(status_code=400, detail=f"Ошибка синтаксиса: {stderr}")
+        raise HTTPException(status_code=400, detail=f"Ошибка синтаксиса: {stdout or stderr}")
     
     # Write config
     import tempfile
@@ -64,10 +72,10 @@ def save_dhcp_config(ssh: SSHService, subnets: List[DHCPSubnet], reservations: L
     finally:
         os.unlink(temp_path)
     
-    # Reload service
-    exit_code, stdout, stderr = ssh.execute("systemctl reload isc-dhcp-server")
+    # Restart service (reload not supported by isc-dhcp-server)
+    exit_code, stdout, stderr = ssh.execute("systemctl restart isc-dhcp-server")
     if exit_code != 0:
-        raise HTTPException(status_code=500, detail=f"Ошибка перезагрузки сервиса: {stderr}")
+        raise HTTPException(status_code=500, detail=f"Ошибка перезапуска сервиса: {stderr}")
 
 
 @router.get("/subnets", response_model=List[DHCPSubnet])
@@ -179,10 +187,12 @@ async def create_reservation(
     username: str = Depends(get_current_user),
 ):
     """Create a new DHCP reservation."""
+    print(f"[DEBUG] create_reservation: {reservation}")
     ssh = get_dhcp_ssh(server_id)
     
     try:
         subnets, reservations = load_dhcp_config(ssh)
+        print(f"[DEBUG] Loaded {len(subnets)} subnets, {len(reservations)} reservations")
         
         new_reservation = DHCPReservation(**reservation.model_dump())
         reservations.append(new_reservation)
@@ -190,6 +200,9 @@ async def create_reservation(
         save_dhcp_config(ssh, subnets, reservations)
         
         return new_reservation
+    except Exception as e:
+        print(f"[DEBUG] Error creating reservation: {e}")
+        raise
     finally:
         ssh.disconnect()
 
