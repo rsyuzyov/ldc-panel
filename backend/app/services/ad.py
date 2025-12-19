@@ -140,15 +140,20 @@ class ADService:
             sftp.put(temp_path, remote_path)
             sftp.close()
             
-            # Execute ldapmodify
-            cmd = f'ldapmodify -H ldapi:/// -f {remote_path}'
+            # Execute ldbadd for adding new entries to Samba AD
+            cmd = f'ldbadd -H /var/lib/samba/private/sam.ldb {remote_path}'
             exit_code, stdout, stderr = self.ssh.execute(cmd)
+            
+            # Debug logging
+            print(f"[DEBUG] ldbadd exit_code={exit_code}")
+            print(f"[DEBUG] ldbadd stdout={stdout}")
+            print(f"[DEBUG] ldbadd stderr={stderr}")
             
             # Cleanup
             self.ssh.execute(f'rm -f {remote_path}')
             
             if exit_code != 0:
-                return False, stderr
+                return False, stderr or stdout
             
             return True, ""
         finally:
@@ -190,13 +195,13 @@ class ADService:
             sftp.put(temp_path, remote_path)
             sftp.close()
             
-            cmd = f'ldapmodify -H ldapi:/// -f {remote_path}'
+            cmd = f'ldbmodify -H /var/lib/samba/private/sam.ldb {remote_path}'
             exit_code, stdout, stderr = self.ssh.execute(cmd)
             
             self.ssh.execute(f'rm -f {remote_path}')
             
             if exit_code != 0:
-                return False, stderr
+                return False, stderr or stdout
             
             return True, ""
         finally:
@@ -208,13 +213,32 @@ class ADService:
         Returns:
             Tuple of (success, error_message)
         """
-        cmd = f'ldapdelete -H ldapi:/// "{dn}"'
+        cmd = f'ldbdel -H /var/lib/samba/private/sam.ldb "{dn}"'
         exit_code, stdout, stderr = self.ssh.execute(cmd)
         
         if exit_code != 0:
-            return False, stderr
+            return False, stderr or stdout
         
         return True, ""
+    
+    def find_user_dn(self, sam_account_name: str) -> Optional[str]:
+        """Find user DN by sAMAccountName.
+        
+        Returns:
+            DN string or None if not found
+        """
+        cmd = f'ldbsearch -H /var/lib/samba/private/sam.ldb "(&(objectClass=user)(sAMAccountName={sam_account_name}))" dn'
+        exit_code, stdout, stderr = self.ssh.execute(cmd)
+        
+        if exit_code != 0:
+            return None
+        
+        entries = self._parse_ldbsearch_output(stdout)
+        for entry in entries:
+            if 'dn' in entry:
+                return entry['dn']
+        
+        return None
     
     def change_password(self, dn: str, new_password: str) -> Tuple[bool, str]:
         """Change user password.
@@ -234,13 +258,13 @@ class ADService:
             sftp.put(temp_path, remote_path)
             sftp.close()
             
-            cmd = f'ldapmodify -H ldapi:/// -f {remote_path}'
+            cmd = f'ldbmodify -H /var/lib/samba/private/sam.ldb {remote_path}'
             exit_code, stdout, stderr = self.ssh.execute(cmd)
             
             self.ssh.execute(f'rm -f {remote_path}')
             
             if exit_code != 0:
-                return False, stderr
+                return False, stderr or stdout
             
             return True, ""
         finally:
@@ -328,13 +352,13 @@ class ADService:
             sftp.put(temp_path, remote_path)
             sftp.close()
             
-            cmd = f'ldapmodify -H ldapi:/// -f {remote_path}'
+            cmd = f'ldbmodify -H /var/lib/samba/private/sam.ldb {remote_path}'
             exit_code, stdout, stderr = self.ssh.execute(cmd)
             
             self.ssh.execute(f'rm -f {remote_path}')
             
             if exit_code != 0:
-                return False, stderr
+                return False, stderr or stdout
             
             return True, ""
         finally:
@@ -354,13 +378,13 @@ class ADService:
             sftp.put(temp_path, remote_path)
             sftp.close()
             
-            cmd = f'ldapmodify -H ldapi:/// -f {remote_path}'
+            cmd = f'ldbmodify -H /var/lib/samba/private/sam.ldb {remote_path}'
             exit_code, stdout, stderr = self.ssh.execute(cmd)
             
             self.ssh.execute(f'rm -f {remote_path}')
             
             if exit_code != 0:
-                return False, stderr
+                return False, stderr or stdout
             
             return True, ""
         finally:

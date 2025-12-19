@@ -118,10 +118,17 @@ class ApiClient {
     return this.request<any[]>(`/ad/users?${params}`)
   }
 
-  async createUser(serverId: string, data: { username: string; fullName: string; email: string; groups: string }) {
+  async createUser(serverId: string, data: { username: string; fullName: string; email: string; groups: string; password?: string }) {
+    // Преобразуем поля фронтенда в формат API
+    const apiData = {
+      sAMAccountName: data.username,
+      cn: data.fullName || data.username,
+      mail: data.email || undefined,
+      password: data.password || 'TempPass123!',  // Временный пароль если не указан
+    }
     return this.request<any>(`/ad/users?server_id=${serverId}`, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(apiData),
     })
   }
 

@@ -30,11 +30,10 @@ def generate_ldif_add(dn: str, attributes: Dict[str, Any]) -> str:
         attributes: Dictionary of attributes
         
     Returns:
-        LDIF string for add operation
+        LDIF string for add operation (without changetype for ldbadd)
     """
     lines = [
         f"dn: {dn}",
-        "changetype: add",
     ]
     
     for key, value in attributes.items():

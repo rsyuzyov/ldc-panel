@@ -122,18 +122,36 @@ def run_tests():
             if existing_server.count() > 0:
                 print("  Удаляю существующий сервер...")
                 existing_server.locator("button[title='Удалить']").click()
-                page.wait_for_timeout(500)
+                page.wait_for_timeout(1000)
             
             # Нажимаем "Добавить"
             page.click("button:has-text('Добавить')")
-            page.wait_for_timeout(300)
+            page.wait_for_timeout(500)
             # Заполняем форму
             page.fill("#name", config["controller"]["name"])
             page.fill("#host", config["controller"].get("host", config["controller"]["name"]))
             page.fill("#user", config["controller"].get("ssh_user", "root"))
-            # Выбираем тип аутентификации "Пароль" и вводим пароль
-            if config["controller"].get("ssh_password"):
-                page.fill("#password", config["controller"]["ssh_password"])
+            
+            # Выбираем тип аутентификации
+            ssh_key_path = config["controller"].get("ssh_key_path")
+            ssh_password = config["controller"].get("ssh_password")
+            
+            if ssh_key_path:
+                # Используем SSH ключ — кликаем на селект внутри диалога
+                dialog_select = page.locator("[role='dialog'] [data-slot='select-trigger']")
+                dialog_select.click()
+                page.wait_for_timeout(200)
+                page.click("[data-slot='select-item']:has-text('SSH ключ')")
+                page.wait_for_timeout(200)
+                # Загружаем файл ключа
+                key_path = Path(ssh_key_path)
+                if not key_path.is_absolute():
+                    key_path = Path(__file__).parent.parent / ssh_key_path
+                page.set_input_files("#key_file", str(key_path))
+            elif ssh_password:
+                # Используем пароль (по умолчанию уже выбран)
+                page.fill("#password", ssh_password)
+            
             page.click("button:has-text('Сохранить')")
             # Ждём закрытия диалога
             page.wait_for_selector("[data-slot='dialog-overlay']", state="hidden", timeout=10000)
@@ -192,8 +210,10 @@ def run_tests():
             page.fill("#email", config["test_user"]["email"])
             page.fill("#groups", config["test_user"]["groups"])
             page.click("button:has-text('Сохранить')")
-            page.wait_for_timeout(500)
-            expect(page.get_by_role("cell", name=config['test_user']['username'], exact=True)).to_be_visible()
+            # Ждём закрытия диалога и перезагрузки данных
+            page.wait_for_selector("[data-slot='dialog-overlay']", state="hidden", timeout=10000)
+            page.wait_for_timeout(1000)
+            expect(page.locator(f"td:has-text('{config['test_user']['username']}')" )).to_be_visible()
             print("✓ Пользователь создан")
             
             # 7. Смена пароля (редактирование пользователя)

@@ -118,12 +118,12 @@ export function ServersSection({ onServerAdded, servers, setServers }: ServersSe
         const created = await api.createServer(form)
         
         const newServer: Server = {
-          id: created.id,
-          name: created.name,
-          host: created.host,
-          port: created.port,
-          user: created.user,
-          auth_type: created.auth_type,
+          id: created.id || id,
+          name: created.name || formData.name,
+          host: created.host || formData.host,
+          port: created.port || formData.port,
+          user: created.user || formData.user,
+          auth_type: created.auth_type || formData.auth_type,
           status: 'Проверка...',
           role: '',
           version: '',
@@ -133,7 +133,9 @@ export function ServersSection({ onServerAdded, servers, setServers }: ServersSe
         setDialogOpen(false)
 
         // Автоматическая проверка после добавления
-        testServerConnection(newServer)
+        if (newServer.id) {
+          testServerConnection(newServer)
+        }
       }
     } catch (e) {
       alert((e as Error).message)
@@ -143,12 +145,14 @@ export function ServersSection({ onServerAdded, servers, setServers }: ServersSe
   }
 
   const testServerConnection = async (server: Server) => {
+    console.log('Testing server:', server.id)
     try {
       setServers((prev) =>
         prev.map((s) => (s.id === server.id ? { ...s, status: 'Проверка...' } : s))
       )
 
       const result = await api.testServer(server.id)
+      console.log('Test result:', result)
 
       setServers((prev) =>
         prev.map((s) => {
@@ -169,6 +173,7 @@ export function ServersSection({ onServerAdded, servers, setServers }: ServersSe
         })
       )
     } catch (e) {
+      console.error('Test error:', e)
       setServers((prev) =>
         prev.map((s) => (s.id === server.id ? { ...s, status: `Ошибка: ${(e as Error).message}` } : s))
       )

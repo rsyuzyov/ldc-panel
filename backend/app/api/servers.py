@@ -65,6 +65,8 @@ async def create_server(
     username: str = Depends(get_current_user),
 ):
     """Create a new server."""
+    print(f"Creating server: id={id}, name={name}, host={host}, port={port}, user={user}, auth_type={auth_type}")
+    
     if server_store.exists(id):
         raise HTTPException(status_code=400, detail="Сервер с таким ID уже существует")
     

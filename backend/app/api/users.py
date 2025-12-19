@@ -105,17 +105,25 @@ async def create_user(
         ad_service.ssh.disconnect()
 
 
-@router.patch("/{dn:path}")
+@router.patch("/{identifier:path}")
 async def update_user(
-    dn: str,
+    identifier: str,
     server_id: str = Query(..., description="ID сервера"),
     user: ADUserUpdate = ...,
     username: str = Depends(get_current_user),
 ):
-    """Update an AD user."""
+    """Update an AD user. Identifier can be DN or sAMAccountName."""
     ad_service = get_ad_service(server_id)
     
     try:
+        # Если identifier не похож на DN, ищем по sAMAccountName
+        if not identifier.upper().startswith("CN="):
+            dn = ad_service.find_user_dn(identifier)
+            if not dn:
+                raise HTTPException(status_code=404, detail=f"Пользователь {identifier} не найден")
+        else:
+            dn = identifier
+        
         success, error = ad_service.modify_user(
             dn=dn,
             cn=user.cn,
@@ -133,16 +141,24 @@ async def update_user(
         ad_service.ssh.disconnect()
 
 
-@router.delete("/{dn:path}")
+@router.delete("/{identifier:path}")
 async def delete_user(
-    dn: str,
+    identifier: str,
     server_id: str = Query(..., description="ID сервера"),
     username: str = Depends(get_current_user),
 ):
-    """Delete an AD user."""
+    """Delete an AD user. Identifier can be DN or sAMAccountName."""
     ad_service = get_ad_service(server_id)
     
     try:
+        # Если identifier не похож на DN, ищем по sAMAccountName
+        if not identifier.upper().startswith("CN="):
+            dn = ad_service.find_user_dn(identifier)
+            if not dn:
+                raise HTTPException(status_code=404, detail=f"Пользователь {identifier} не найден")
+        else:
+            dn = identifier
+        
         success, error = ad_service.delete_user(dn)
         
         if not success:
