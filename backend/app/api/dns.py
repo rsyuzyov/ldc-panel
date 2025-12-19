@@ -6,6 +6,7 @@ from app.api.auth import get_current_user
 from app.models.dns import DNSZone, DNSRecordCreate, DNSRecordResponse, DNSRecordType
 from app.services.server_store import server_store
 from app.services.ssh import SSHService
+from app.services.kerberos import ensure_kerberos_ticket
 from app.services.samba_tool import (
     generate_dns_zonelist_command,
     generate_dns_query_command,
@@ -30,6 +31,12 @@ def get_dns_ssh(server_id: str) -> SSHService:
     if not success:
         raise HTTPException(status_code=500, detail=f"Ошибка подключения: {error}")
     
+    # Ensure Kerberos ticket for samba-tool
+    success, error = ensure_kerberos_ticket(ssh, server.user)
+    if not success:
+        ssh.disconnect()
+        raise HTTPException(status_code=500, detail=f"Ошибка Kerberos: {error}")
+    
     return ssh
 
 
@@ -46,20 +53,22 @@ async def get_zones(
         cmd = generate_dns_zonelist_command(server.host)
         exit_code, stdout, stderr = ssh.execute(cmd)
         
+        print(f"[DEBUG] DNS zonelist: exit_code={exit_code}, stdout={stdout[:200] if stdout else ''}")
+        
         if exit_code != 0:
             raise HTTPException(status_code=500, detail=stderr)
         
         zones = []
         for line in stdout.split('\n'):
             line = line.strip()
-            if line and not line.startswith('pszZoneName'):
-                # Parse zone name from output
-                if ':' in line:
-                    zone_name = line.split(':')[1].strip()
-                    if zone_name:
-                        zone_type = "reverse" if ".in-addr.arpa" in zone_name else "forward"
-                        zones.append(DNSZone(name=zone_name, type=zone_type))
+            # Parse only pszZoneName lines
+            if line.startswith('pszZoneName') and ':' in line:
+                zone_name = line.split(':', 1)[1].strip()
+                if zone_name:
+                    zone_type = "reverse" if ".in-addr.arpa" in zone_name else "forward"
+                    zones.append(DNSZone(name=zone_name, type=zone_type))
         
+        print(f"[DEBUG] Parsed zones: {[z.name for z in zones]}")
         return zones
     finally:
         ssh.disconnect()

@@ -101,10 +101,10 @@ class SSHService:
         if exit_code == 0:
             services.dns = True
         else:
-            # Check if samba internal DNS is used (samba-tool dns zonelist)
-            exit_code, stdout, stderr = self.execute("samba-tool dns zonelist localhost -U%")
-            services.dns = exit_code == 0 and len(stdout.strip()) > 0
-            print(f"[DEBUG] DNS check: exit_code={exit_code}, stdout_len={len(stdout.strip())}, stderr={stderr[:100] if stderr else ''}")
+            # Samba AD DC includes internal DNS by default
+            # If AD is running, DNS is available (Samba internal DNS)
+            services.dns = services.ad
+            print(f"[DEBUG] DNS check: dns={services.dns} (based on AD status)")
         
         # Check isc-dhcp-server
         exit_code, _, _ = self.execute("systemctl is-active isc-dhcp-server")

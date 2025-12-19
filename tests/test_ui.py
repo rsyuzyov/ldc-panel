@@ -92,6 +92,13 @@ def run_tests():
         page = context.new_page()
         page.set_default_timeout(30000)
         
+        # Логирование консоли браузера (только ошибки и важные сообщения)
+        page.on("console", lambda msg: print(f"  [BROWSER] {msg.type}: {msg.text}") if msg.type in ['error', 'warning', 'log'] else None)
+        
+        # Логирование сетевых ошибок
+        page.on("requestfailed", lambda request: print(f"  [NETWORK FAIL] {request.url} - {request.failure}"))
+        page.on("response", lambda response: print(f"  [RESPONSE] {response.status} {response.url}") if response.status >= 400 else None)
+        
         # Глобальный обработчик диалогов (confirm)
         page.on("dialog", lambda dialog: dialog.accept())
         
@@ -106,9 +113,12 @@ def run_tests():
             print("\n[2/13] Вход в панель...")
             page.fill("#username", config["login"]["username"])
             page.fill("#password", config["login"]["password"])
+            page.screenshot(path="tests/before_login.png")
             page.click("button[type='submit']")
+            page.wait_for_timeout(2000)
+            page.screenshot(path="tests/after_login.png")
             # Ждём загрузки главной страницы
-            expect(page.locator("text=Текущий сервер")).to_be_visible()
+            expect(page.locator("text=Текущий сервер")).to_be_visible(timeout=10000)
             print("✓ Вход выполнен")
             
             # 3. Добавление контроллера
@@ -248,10 +258,15 @@ def run_tests():
             
             # 9. Переход в DNS и проверка списка
             print("\n[9/13] Проверка раздела DNS...")
-            page.click("button:has-text('DNS')")
-            page.wait_for_timeout(500)
+            dns_button = page.locator("button:has-text('DNS')")
+            print(f"  DNS button visible: {dns_button.is_visible()}")
+            print(f"  DNS button enabled: {dns_button.is_enabled()}")
+            dns_button.click()
+            page.wait_for_timeout(2000)  # Больше времени на загрузку
+            # Проверяем что раздел переключился
+            page.screenshot(path="tests/dns_section.png")
             rows = page.locator("tbody tr")
-            expect(rows.first).to_be_visible()
+            expect(rows.first).to_be_visible(timeout=10000)
             row_count = rows.count()
             assert row_count > 0, "Список DNS записей пуст"
             print(f"✓ Раздел DNS: найдено {row_count} записей")
