@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Key } from 'lucide-react'
 import { DataTable } from './DataTable'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog'
 import { Button } from './ui/button'
@@ -47,6 +48,9 @@ export function UsersSection({ serverId }: UsersSectionProps) {
   const [editingComputer, setEditingComputer] = useState<Computer | null>(null)
   const [userFormData, setUserFormData] = useState({ username: '', fullName: '', email: '', groups: 'Domain Users', enabled: 'Да' })
   const [computerFormData, setComputerFormData] = useState({ name: '', os: '', ip: '', lastSeen: '', status: 'Онлайн' })
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
+  const [passwordUser, setPasswordUser] = useState<User | null>(null)
+  const [newPassword, setNewPassword] = useState('')
 
   useEffect(() => {
     loadData()
@@ -122,6 +126,23 @@ export function UsersSection({ serverId }: UsersSectionProps) {
     }
   }
 
+  const handleChangePassword = (user: User) => {
+    setPasswordUser(user)
+    setNewPassword('')
+    setPasswordDialogOpen(true)
+  }
+
+  const handleSavePassword = async () => {
+    if (!passwordUser || !newPassword) return
+    try {
+      await api.changeUserPassword(serverId, passwordUser.username, newPassword)
+      setPasswordDialogOpen(false)
+      alert('Пароль успешно изменён')
+    } catch (e: any) {
+      alert(e.message)
+    }
+  }
+
   const handleAddComputer = () => {
     setDialogType('computer')
     setEditingComputer(null)
@@ -185,6 +206,14 @@ export function UsersSection({ serverId }: UsersSectionProps) {
             onAdd={handleAddUser}
             onEdit={handleEditUser}
             onDelete={handleDeleteUser}
+            customActions={[
+              {
+                icon: <Key className="w-4 h-4" />,
+                title: 'Сменить пароль',
+                onClick: handleChangePassword,
+                className: 'p-1 text-amber-600 hover:bg-amber-50 rounded transition-colors',
+              },
+            ]}
             searchPlaceholder="Поиск пользователей..."
           />
         </TabsContent>
@@ -258,6 +287,29 @@ export function UsersSection({ serverId }: UsersSectionProps) {
               Отмена
             </Button>
             <Button onClick={handleSave} className="bg-blue-600 hover:bg-blue-700">
+              Сохранить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Смена пароля</DialogTitle>
+            <DialogDescription>Новый пароль для {passwordUser?.username}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="newPassword">Новый пароль</Label>
+              <Input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Введите новый пароль" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPasswordDialogOpen(false)}>
+              Отмена
+            </Button>
+            <Button onClick={handleSavePassword} className="bg-blue-600 hover:bg-blue-700" disabled={!newPassword}>
               Сохранить
             </Button>
           </DialogFooter>

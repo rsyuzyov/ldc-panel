@@ -8,7 +8,10 @@ import { GPOSection } from './components/GPOSection'
 import { BackupSection } from './components/BackupSection'
 import { LogsSection } from './components/LogsSection'
 import { LoginPage } from './components/LoginPage'
+import { LoadingOverlay } from './components/LoadingOverlay'
 import { useAuth } from './hooks/useAuth'
+import { LoadingProvider, useLoading } from './contexts/LoadingContext'
+import { setLoadingCallbacks } from './api/client'
 
 export type SectionType = 'servers' | 'users' | 'dns' | 'dhcp' | 'gpo' | 'backup' | 'logs'
 
@@ -29,11 +32,17 @@ interface Server {
   }
 }
 
-export default function App() {
+function AppContent() {
   const { isAuthenticated, loading, login, logout } = useAuth()
+  const { startLoading, stopLoading } = useLoading()
   const [activeSection, setActiveSection] = useState<SectionType>('servers')
   const [servers, setServers] = useState<Server[]>([])
   const [currentServerId, setCurrentServerId] = useState<string | null>(null)
+
+  // Связываем API клиент с контекстом загрузки
+  useEffect(() => {
+    setLoadingCallbacks(startLoading, stopLoading)
+  }, [startLoading, stopLoading])
 
   // Автовыбор сервера если он единственный
   useEffect(() => {
@@ -102,6 +111,15 @@ export default function App() {
       <main className="flex-1 overflow-auto">
         <div className="p-6">{renderSection()}</div>
       </main>
+      <LoadingOverlay />
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <LoadingProvider>
+      <AppContent />
+    </LoadingProvider>
   )
 }

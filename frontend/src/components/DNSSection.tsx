@@ -30,7 +30,7 @@ export function DNSSection({ serverId }: DNSSectionProps) {
   const [formData, setFormData] = useState({ name: '', type: 'A', value: '', ttl: '3600', zone: '' })
 
   useEffect(() => {
-    loadZones()
+    loadInitialData()
   }, [serverId])
 
   useEffect(() => {
@@ -39,17 +39,32 @@ export function DNSSection({ serverId }: DNSSectionProps) {
     }
   }, [currentZone])
 
-  const loadZones = async () => {
+  const loadInitialData = async () => {
+    setLoading(true)
     try {
-      const data = await api.getDnsZones(serverId)
-      const zoneNames = data.map((z: any) => z.name || z.zone || z)
+      // Используем объединённый эндпоинт — зоны + записи первой зоны за один запрос
+      const data = await api.getDnsAll(serverId)
+      const zoneNames = data.zones.map((z: any) => z.name || z.zone || z)
       setZones(zoneNames)
-      if (zoneNames.length > 0 && !currentZone) {
+      
+      if (data.currentZone) {
+        setCurrentZone(data.currentZone)
+        setRecords(data.records.map((r: any, i: number) => ({
+          id: `${r.name}-${r.type}-${i}`,
+          name: r.name || '',
+          type: r.type || 'A',
+          value: r.value || r.data || '',
+          ttl: String(r.ttl || 3600),
+          zone: data.currentZone!,
+        })))
+      } else if (zoneNames.length > 0) {
         setCurrentZone(zoneNames[0])
       }
     } catch (e) {
-      console.error('Failed to load DNS zones:', e)
+      console.error('Failed to load DNS data:', e)
       setZones([])
+    } finally {
+      setLoading(false)
     }
   }
 

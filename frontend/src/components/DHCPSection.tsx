@@ -56,14 +56,11 @@ export function DHCPSection({ serverId }: DHCPSectionProps) {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [subnetData, reservationData, leaseData] = await Promise.all([
-        api.getDhcpSubnets(serverId).catch(() => []),
-        api.getDhcpReservations(serverId).catch(() => []),
-        api.getDhcpLeases(serverId).catch(() => []),
-      ])
+      // Используем объединённый эндпоинт — один запрос вместо трёх
+      const data = await api.getDhcpAll(serverId)
 
       setScopes(
-        subnetData.map((s: any, i: number) => ({
+        data.subnets.map((s: any, i: number) => ({
           id: s.id || String(i),
           network: s.network || s.subnet || '',
           netmask: s.netmask || '255.255.255.0',
@@ -75,7 +72,7 @@ export function DHCPSection({ serverId }: DHCPSectionProps) {
       )
 
       setReservations(
-        reservationData.map((r: any, i: number) => ({
+        data.reservations.map((r: any, i: number) => ({
           id: r.id || r.mac || String(i),
           hostname: r.hostname || r.name || '',
           mac: r.mac || '',
@@ -85,7 +82,7 @@ export function DHCPSection({ serverId }: DHCPSectionProps) {
       )
 
       setLeases(
-        leaseData.map((l: any, i: number) => ({
+        data.leases.map((l: any, i: number) => ({
           id: l.id || String(i),
           ip: l.ip || l.address || '',
           mac: l.mac || '',

@@ -9,6 +9,13 @@ export interface Column {
   width?: string
 }
 
+export interface CustomAction<T> {
+  icon: React.ReactNode
+  title: string
+  onClick: (item: T) => void
+  className?: string
+}
+
 export interface DataTableProps<T> {
   title: string
   description: string
@@ -17,6 +24,7 @@ export interface DataTableProps<T> {
   onAdd?: () => void
   onEdit?: (item: T) => void
   onDelete?: (item: T) => void
+  customActions?: CustomAction<T>[]
   searchPlaceholder?: string
 }
 
@@ -30,6 +38,7 @@ export function DataTable<T extends { id: string | number }>({
   onAdd,
   onEdit,
   onDelete,
+  customActions,
   searchPlaceholder = 'Поиск...',
 }: DataTableProps<T>) {
   const [searchQuery, setSearchQuery] = useState('')
@@ -66,7 +75,7 @@ export function DataTable<T extends { id: string | number }>({
     })
   }, [data, searchQuery, sortKey, sortDirection])
 
-  const showActions = onAdd || onEdit || onDelete
+  const showActions = onAdd || onEdit || onDelete || (customActions && customActions.length > 0)
 
   return (
     <div className="space-y-4">
@@ -129,6 +138,11 @@ export function DataTable<T extends { id: string | number }>({
                     {showActions && (
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
+                          {customActions?.map((action, idx) => (
+                            <button key={idx} onClick={() => action.onClick(item)} className={action.className || "p-1 text-gray-600 hover:bg-gray-50 rounded transition-colors"} title={action.title}>
+                              {action.icon}
+                            </button>
+                          ))}
                           {onEdit && (
                             <button onClick={() => onEdit(item)} className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Редактировать">
                               <Pencil className="w-4 h-4" />

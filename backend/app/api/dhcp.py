@@ -6,6 +6,7 @@ from app.api.auth import get_current_user
 from app.models.dhcp import DHCPSubnet, DHCPSubnetCreate, DHCPReservation, DHCPReservationCreate, DHCPLease
 from app.services.server_store import server_store
 from app.services.ssh import SSHService
+from app.services.ssh_pool import ssh_pool
 from app.services.dhcp_parser import parse_dhcpd_conf, serialize_dhcpd_conf, parse_dhcpd_leases
 
 router = APIRouter(prefix="/api/dhcp", tags=["dhcp"])
@@ -14,8 +15,12 @@ DHCPD_CONF_PATH = "/etc/dhcp/dhcpd.conf"
 DHCPD_LEASES_PATH = "/var/lib/dhcp/dhcpd.leases"
 
 
-def get_dhcp_ssh(server_id: str) -> SSHService:
-    """Get SSH service for DHCP operations."""
+def get_dhcp_ssh(server_id: str, use_pool: bool = True) -> tuple[SSHService, bool]:
+    """Get SSH service for DHCP operations.
+    
+    Returns:
+        Tuple of (ssh, from_pool) - from_pool=True означает не закрывать соединение
+    """
     server = server_store.get_by_id(server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Сервер не найден")
@@ -23,12 +28,26 @@ def get_dhcp_ssh(server_id: str) -> SSHService:
     if not server.services.dhcp:
         raise HTTPException(status_code=400, detail="DHCP сервис недоступен на этом сервере")
     
-    ssh = SSHService(server)
-    success, error = ssh.connect()
-    if not success:
-        raise HTTPException(status_code=500, detail=f"Ошибка подключения: {error}")
+    from_pool = False
+    if use_pool:
+        try:
+            ssh = ssh_pool.get(server)
+            from_pool = True
+        except ConnectionError as e:
+            raise HTTPException(status_code=500, detail=f"Ошибка подключения: {e}")
+    else:
+        ssh = SSHService(server)
+        success, error = ssh.connect()
+        if not success:
+            raise HTTPException(status_code=500, detail=f"Ошибка подключения: {error}")
     
-    return ssh
+    return ssh, from_pool
+
+
+def release_ssh(ssh: SSHService, from_pool: bool) -> None:
+    """Освободить SSH соединение."""
+    if not from_pool:
+        ssh.disconnect()
 
 
 def load_dhcp_config(ssh: SSHService) -> tuple:
@@ -91,13 +110,13 @@ async def get_subnets(
     username: str = Depends(get_current_user),
 ):
     """Get list of DHCP subnets."""
-    ssh = get_dhcp_ssh(server_id)
+    ssh, from_pool = get_dhcp_ssh(server_id)
     
     try:
         subnets, _ = load_dhcp_config(ssh)
         return subnets
     finally:
-        ssh.disconnect()
+        release_ssh(ssh, from_pool)
 
 
 @router.post("/subnets", response_model=DHCPSubnet)
@@ -107,7 +126,7 @@ async def create_subnet(
     username: str = Depends(get_current_user),
 ):
     """Create a new DHCP subnet."""
-    ssh = get_dhcp_ssh(server_id)
+    ssh, from_pool = get_dhcp_ssh(server_id)
     
     try:
         subnets, reservations = load_dhcp_config(ssh)
@@ -119,7 +138,7 @@ async def create_subnet(
         
         return new_subnet
     finally:
-        ssh.disconnect()
+        release_ssh(ssh, from_pool)
 
 
 @router.patch("/subnets/{subnet_id}", response_model=DHCPSubnet)
@@ -130,7 +149,7 @@ async def update_subnet(
     username: str = Depends(get_current_user),
 ):
     """Update a DHCP subnet."""
-    ssh = get_dhcp_ssh(server_id)
+    ssh, from_pool = get_dhcp_ssh(server_id)
     
     try:
         subnets, reservations = load_dhcp_config(ssh)
@@ -146,7 +165,7 @@ async def update_subnet(
         
         raise HTTPException(status_code=404, detail="Подсеть не найдена")
     finally:
-        ssh.disconnect()
+        release_ssh(ssh, from_pool)
 
 
 @router.delete("/subnets/{subnet_id}")
@@ -156,7 +175,7 @@ async def delete_subnet(
     username: str = Depends(get_current_user),
 ):
     """Delete a DHCP subnet."""
-    ssh = get_dhcp_ssh(server_id)
+    ssh, from_pool = get_dhcp_ssh(server_id)
     
     try:
         subnets, reservations = load_dhcp_config(ssh)
@@ -171,7 +190,7 @@ async def delete_subnet(
         
         return {"message": "Подсеть удалена"}
     finally:
-        ssh.disconnect()
+        release_ssh(ssh, from_pool)
 
 
 @router.get("/reservations", response_model=List[DHCPReservation])
@@ -180,13 +199,13 @@ async def get_reservations(
     username: str = Depends(get_current_user),
 ):
     """Get list of DHCP reservations."""
-    ssh = get_dhcp_ssh(server_id)
+    ssh, from_pool = get_dhcp_ssh(server_id)
     
     try:
         _, reservations = load_dhcp_config(ssh)
         return reservations
     finally:
-        ssh.disconnect()
+        release_ssh(ssh, from_pool)
 
 
 @router.post("/reservations", response_model=DHCPReservation)
@@ -197,7 +216,7 @@ async def create_reservation(
 ):
     """Create a new DHCP reservation."""
     print(f"[DEBUG] create_reservation: {reservation}")
-    ssh = get_dhcp_ssh(server_id)
+    ssh, from_pool = get_dhcp_ssh(server_id)
     
     try:
         subnets, reservations = load_dhcp_config(ssh)
@@ -213,7 +232,7 @@ async def create_reservation(
         print(f"[DEBUG] Error creating reservation: {e}")
         raise
     finally:
-        ssh.disconnect()
+        release_ssh(ssh, from_pool)
 
 
 @router.delete("/reservations/{reservation_id}")
@@ -223,7 +242,7 @@ async def delete_reservation(
     username: str = Depends(get_current_user),
 ):
     """Delete a DHCP reservation."""
-    ssh = get_dhcp_ssh(server_id)
+    ssh, from_pool = get_dhcp_ssh(server_id)
     
     try:
         subnets, reservations = load_dhcp_config(ssh)
@@ -238,7 +257,7 @@ async def delete_reservation(
         
         return {"message": "Резервирование удалено"}
     finally:
-        ssh.disconnect()
+        release_ssh(ssh, from_pool)
 
 
 @router.get("/leases", response_model=List[DHCPLease])
@@ -247,7 +266,7 @@ async def get_leases(
     username: str = Depends(get_current_user),
 ):
     """Get list of active DHCP leases."""
-    ssh = get_dhcp_ssh(server_id)
+    ssh, from_pool = get_dhcp_ssh(server_id)
     
     try:
         exit_code, stdout, stderr = ssh.execute(f"cat {DHCPD_LEASES_PATH}")
@@ -257,4 +276,27 @@ async def get_leases(
         leases = parse_dhcpd_leases(stdout)
         return leases
     finally:
-        ssh.disconnect()
+        release_ssh(ssh, from_pool)
+
+
+@router.get("/all")
+async def get_all_dhcp_data(
+    server_id: str = Query(..., description="ID сервера"),
+    username: str = Depends(get_current_user),
+):
+    """Получить все DHCP данные одним запросом."""
+    ssh, from_pool = get_dhcp_ssh(server_id)
+    
+    try:
+        subnets, reservations = load_dhcp_config(ssh)
+        
+        exit_code, stdout, _ = ssh.execute(f"cat {DHCPD_LEASES_PATH}")
+        leases = parse_dhcpd_leases(stdout) if exit_code == 0 else []
+        
+        return {
+            "subnets": subnets,
+            "reservations": reservations,
+            "leases": leases
+        }
+    finally:
+        release_ssh(ssh, from_pool)

@@ -8,6 +8,21 @@ interface ApiError {
   detail: string
 }
 
+// Пути, которые обращаются к контроллеру домена (долгие операции)
+const CONTROLLER_PATHS = ['/ad/', '/dns/', '/dhcp/', '/gpo/', '/backup/']
+
+// Глобальные колбэки для управления загрузкой
+let onLoadingStart: ((message: string) => void) | null = null
+let onLoadingStop: (() => void) | null = null
+
+export function setLoadingCallbacks(
+  start: (message: string) => void,
+  stop: () => void
+) {
+  onLoadingStart = start
+  onLoadingStop = stop
+}
+
 class ApiClient {
   private token: string | null = null
 
@@ -27,7 +42,18 @@ class ApiClient {
     return this.token
   }
 
+  private isControllerPath(path: string): boolean {
+    return CONTROLLER_PATHS.some(p => path.includes(p))
+  }
+
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+    const showLoading = this.isControllerPath(path)
+    
+    if (showLoading && onLoadingStart) {
+      onLoadingStart('Обращение к контроллеру домена...')
+    }
+
+    try {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(options.headers as Record<string, string>),
@@ -43,12 +69,17 @@ class ApiClient {
       headers,
     })
 
-    if (!response.ok) {
-      const error: ApiError = await response.json().catch(() => ({ detail: 'Ошибка сервера' }))
-      throw new Error(error.detail)
-    }
+      if (!response.ok) {
+        const error: ApiError = await response.json().catch(() => ({ detail: 'Ошибка сервера' }))
+        throw new Error(error.detail)
+      }
 
-    return response.json()
+      return response.json()
+    } finally {
+      if (showLoading && onLoadingStop) {
+        onLoadingStop()
+      }
+    }
   }
 
   // Auth
@@ -161,6 +192,13 @@ class ApiClient {
     return this.request(`/ad/users/${username}?server_id=${serverId}`, { method: 'DELETE' })
   }
 
+  async changeUserPassword(serverId: string, userDnOrUsername: string, password: string) {
+    return this.request<{ message: string }>(`/ad/users/${userDnOrUsername}/password?server_id=${serverId}`, {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    })
+  }
+
   // DNS
   async getDnsZones(serverId: string) {
     return this.request<any[]>(`/dns/zones?server_id=${serverId}`)
@@ -168,6 +206,10 @@ class ApiClient {
 
   async getDnsRecords(serverId: string, zone: string) {
     return this.request<any[]>(`/dns/zones/${zone}/records?server_id=${serverId}`)
+  }
+
+  async getDnsAll(serverId: string) {
+    return this.request<{ zones: any[]; records: any[]; currentZone: string | null }>(`/dns/all?server_id=${serverId}`)
   }
 
   async createDnsRecord(serverId: string, zone: string, data: { name: string; type: string; value: string; ttl: number }) {
@@ -200,6 +242,10 @@ class ApiClient {
   // DHCP
   async getDhcpSubnets(serverId: string) {
     return this.request<any[]>(`/dhcp/subnets?server_id=${serverId}`)
+  }
+
+  async getDhcpAll(serverId: string) {
+    return this.request<{ subnets: any[]; reservations: any[]; leases: any[] }>(`/dhcp/all?server_id=${serverId}`)
   }
 
   async createDhcpSubnet(serverId: string, data: any) {
