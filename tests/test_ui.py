@@ -203,6 +203,13 @@ def run_tests():
             
             # 6. Создание тестового пользователя
             print("\n[6/13] Создание пользователя ldc-panel-test...")
+            # Удаляем тестового пользователя если он остался от предыдущего запуска
+            existing_user = page.locator(f"tr:has-text('{config['test_user']['username']}')")
+            if existing_user.count() > 0:
+                print("  Пользователь уже существует, удаляю...")
+                existing_user.locator("button[title='Удалить']").click()
+                page.wait_for_timeout(1000)
+            
             page.click("button:has-text('Добавить')")
             page.wait_for_timeout(300)
             page.fill("#username", config["test_user"]["username"])
@@ -213,11 +220,14 @@ def run_tests():
             # Ждём закрытия диалога и перезагрузки данных
             page.wait_for_selector("[data-slot='dialog-overlay']", state="hidden", timeout=10000)
             page.wait_for_timeout(1000)
-            expect(page.locator(f"td:has-text('{config['test_user']['username']}')" )).to_be_visible()
+            expect(page.locator(f"td:text-is('{config['test_user']['username']}')" )).to_be_visible()
             print("✓ Пользователь создан")
             
             # 7. Смена пароля (редактирование пользователя)
             print("\n[7/13] Смена пароля пользователя...")
+            # Ждём полного закрытия диалога
+            page.wait_for_selector("[data-slot='dialog-overlay']", state="hidden", timeout=10000)
+            page.wait_for_timeout(500)
             # Находим строку с тестовым пользователем и кликаем редактировать
             user_row = page.locator(f"tr:has-text('{config['test_user']['username']}')")
             user_row.locator("button[title='Редактировать']").click()

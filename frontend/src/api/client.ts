@@ -133,9 +133,14 @@ class ApiClient {
   }
 
   async updateUser(serverId: string, username: string, data: { fullName?: string; email?: string; groups?: string }) {
+    // Преобразуем поля фронтенда в формат API
+    const apiData = {
+      cn: data.fullName || undefined,
+      mail: data.email || undefined,
+    }
     return this.request<any>(`/ad/users/${username}?server_id=${serverId}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
+      method: 'PATCH',
+      body: JSON.stringify(apiData),
     })
   }
 

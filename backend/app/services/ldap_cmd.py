@@ -53,7 +53,7 @@ def generate_ldif_add(dn: str, attributes: Dict[str, Any]) -> str:
 
 
 def generate_ldif_modify(dn: str, modifications: List[Dict[str, Any]]) -> str:
-    """Generate LDIF for modifying an entry.
+    """Generate LDIF for modifying an entry using ldbmodify.
     
     Args:
         dn: Distinguished name of the entry
@@ -61,11 +61,13 @@ def generate_ldif_modify(dn: str, modifications: List[Dict[str, Any]]) -> str:
                       operation can be 'replace', 'add', 'delete'
         
     Returns:
-        LDIF string for modify operation
+        LDIF string for modify operation (without changetype for ldbmodify)
     """
+    if not modifications:
+        return ""
+    
     lines = [
         f"dn: {dn}",
-        "changetype: modify",
     ]
     
     for i, mod in enumerate(modifications):

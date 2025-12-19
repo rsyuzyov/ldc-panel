@@ -96,15 +96,53 @@ class SSHService:
         exit_code, _, _ = self.execute("systemctl is-active samba-ad-dc")
         services.ad = exit_code == 0
         
-        # Check bind9 (DNS)
+        # Check DNS - bind9 or samba internal DNS
         exit_code, _, _ = self.execute("systemctl is-active bind9")
-        services.dns = exit_code == 0
+        if exit_code == 0:
+            services.dns = True
+        else:
+            # Check if samba internal DNS is used (samba-tool dns zonelist)
+            exit_code, stdout, stderr = self.execute("samba-tool dns zonelist localhost -U%")
+            services.dns = exit_code == 0 and len(stdout.strip()) > 0
+            print(f"[DEBUG] DNS check: exit_code={exit_code}, stdout_len={len(stdout.strip())}, stderr={stderr[:100] if stderr else ''}")
         
         # Check isc-dhcp-server
         exit_code, _, _ = self.execute("systemctl is-active isc-dhcp-server")
         services.dhcp = exit_code == 0
         
+        print(f"[DEBUG] Services: ad={services.ad}, dns={services.dns}, dhcp={services.dhcp}")
+        
         return services
+    
+    def detect_domain(self) -> Tuple[Optional[str], Optional[str]]:
+        """Detect domain and base_dn from Samba AD.
+        
+        Returns:
+            Tuple of (domain, base_dn) or (None, None) if not detected
+        """
+        if not self.client:
+            return None, None
+        
+        # Get realm from samba config
+        exit_code, stdout, _ = self.execute("grep -i '^\\s*realm' /etc/samba/smb.conf | head -1 | cut -d'=' -f2 | tr -d ' '")
+        if exit_code == 0 and stdout.strip():
+            realm = stdout.strip().upper()
+            domain = realm.lower()
+            # Convert domain to base_dn: domain.local -> DC=domain,DC=local
+            parts = domain.split('.')
+            base_dn = ','.join(f'DC={p}' for p in parts)
+            return domain, base_dn
+        
+        # Fallback: try ldbsearch for defaultNamingContext
+        exit_code, stdout, _ = self.execute('ldbsearch -H /var/lib/samba/private/sam.ldb -b "" -s base defaultNamingContext 2>/dev/null | grep defaultNamingContext | cut -d: -f2 | tr -d " "')
+        if exit_code == 0 and stdout.strip():
+            base_dn = stdout.strip()
+            # Extract domain from base_dn: DC=domain,DC=local -> domain.local
+            parts = [p.split('=')[1] for p in base_dn.split(',') if p.startswith('DC=')]
+            domain = '.'.join(parts).lower()
+            return domain, base_dn
+        
+        return None, None
     
     def __enter__(self):
         self.connect()
@@ -131,6 +169,15 @@ def test_connection(server: ServerConfig) -> Tuple[bool, str, ServerServices]:
     
     try:
         services = ssh.check_services()
+        
+        # Auto-detect domain and base_dn from Samba if AD is available
+        if services.ad and not server.base_dn:
+            domain, base_dn = ssh.detect_domain()
+            if domain:
+                server.domain = domain
+            if base_dn:
+                server.base_dn = base_dn
+        
         return True, "", services
     finally:
         ssh.disconnect()

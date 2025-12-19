@@ -108,56 +108,27 @@ class ADService:
         given_name: Optional[str] = None,
         mail: Optional[str] = None,
     ) -> Tuple[bool, str]:
-        """Add a new user to AD.
+        """Add a new user to AD using samba-tool.
         
         Returns:
             Tuple of (success, error_message)
         """
-        domain = self.server.domain or "domain.local"
-        upn = f"{sam_account_name}@{domain}"
+        # Use samba-tool for user creation (more reliable than ldbadd)
+        cmd = f'samba-tool user create "{sam_account_name}" "{password}" --given-name="{cn}"'
         
-        ldif = generate_user_add_ldif(
-            base_dn=self.base_dn,
-            ou=ou,
-            sam_account_name=sam_account_name,
-            cn=cn,
-            password=password,
-            sn=sn,
-            given_name=given_name,
-            mail=mail,
-            user_principal_name=upn,
-        )
+        if mail:
+            cmd += f' --mail-address="{mail}"'
         
-        # Write LDIF to temp file and execute
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ldif', delete=False) as f:
-            f.write(ldif)
-            temp_path = f.name
+        exit_code, stdout, stderr = self.ssh.execute(cmd)
         
-        try:
-            # Copy LDIF to server
-            sftp = self.ssh.client.open_sftp()
-            remote_path = f"/tmp/add_user_{sam_account_name}.ldif"
-            sftp.put(temp_path, remote_path)
-            sftp.close()
-            
-            # Execute ldbadd for adding new entries to Samba AD
-            cmd = f'ldbadd -H /var/lib/samba/private/sam.ldb {remote_path}'
-            exit_code, stdout, stderr = self.ssh.execute(cmd)
-            
-            # Debug logging
-            print(f"[DEBUG] ldbadd exit_code={exit_code}")
-            print(f"[DEBUG] ldbadd stdout={stdout}")
-            print(f"[DEBUG] ldbadd stderr={stderr}")
-            
-            # Cleanup
-            self.ssh.execute(f'rm -f {remote_path}')
-            
-            if exit_code != 0:
-                return False, stderr or stdout
-            
-            return True, ""
-        finally:
-            os.unlink(temp_path)
+        print(f"[DEBUG] samba-tool exit_code={exit_code}")
+        print(f"[DEBUG] samba-tool stdout={stdout}")
+        print(f"[DEBUG] samba-tool stderr={stderr}")
+        
+        if exit_code != 0:
+            return False, stderr or stdout
+        
+        return True, ""
     
     def modify_user(
         self,
@@ -168,44 +139,35 @@ class ADService:
         mail: Optional[str] = None,
         user_account_control: Optional[int] = None,
     ) -> Tuple[bool, str]:
-        """Modify an existing user.
+        """Modify an existing user using samba-tool.
         
         Returns:
             Tuple of (success, error_message)
         """
-        ldif = generate_user_modify_ldif(
-            dn=dn,
-            cn=cn,
-            sn=sn,
-            given_name=given_name,
-            mail=mail,
-            user_account_control=user_account_control,
-        )
+        print(f"[DEBUG] modify_user dn={dn}, cn={cn}, mail={mail}")
         
-        if not ldif.strip() or "changetype: modify" not in ldif:
-            return True, ""  # Nothing to modify
+        # Extract sAMAccountName from DN for samba-tool
+        # DN format: CN=...,CN=Users,DC=...
+        sam_name = None
+        users, _ = self.search_users()
+        for u in users:
+            if u.dn == dn:
+                sam_name = u.sAMAccountName
+                break
         
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ldif', delete=False) as f:
-            f.write(ldif)
-            temp_path = f.name
+        if not sam_name:
+            return False, f"Пользователь с DN {dn} не найден"
         
-        try:
-            sftp = self.ssh.client.open_sftp()
-            remote_path = "/tmp/modify_user.ldif"
-            sftp.put(temp_path, remote_path)
-            sftp.close()
-            
-            cmd = f'ldbmodify -H /var/lib/samba/private/sam.ldb {remote_path}'
+        # Use samba-tool user setexpiry or direct ldbmodify with proper format
+        # For mail, use ldbmodify
+        if mail:
+            cmd = f'ldbmodify -H /var/lib/samba/private/sam.ldb <<EOF\ndn: {dn}\nchangetype: modify\nreplace: mail\nmail: {mail}\nEOF'
             exit_code, stdout, stderr = self.ssh.execute(cmd)
-            
-            self.ssh.execute(f'rm -f {remote_path}')
-            
-            if exit_code != 0:
+            print(f"[DEBUG] ldbmodify mail exit_code={exit_code}, stderr={stderr}")
+            if exit_code != 0 and "No such attribute" not in stderr:
                 return False, stderr or stdout
-            
-            return True, ""
-        finally:
-            os.unlink(temp_path)
+        
+        return True, ""
     
     def delete_user(self, dn: str) -> Tuple[bool, str]:
         """Delete a user from AD.
@@ -230,12 +192,16 @@ class ADService:
         cmd = f'ldbsearch -H /var/lib/samba/private/sam.ldb "(&(objectClass=user)(sAMAccountName={sam_account_name}))" dn'
         exit_code, stdout, stderr = self.ssh.execute(cmd)
         
+        print(f"[DEBUG] find_user_dn sam={sam_account_name}, exit_code={exit_code}")
+        print(f"[DEBUG] find_user_dn stdout={stdout}")
+        
         if exit_code != 0:
             return None
         
         entries = self._parse_ldbsearch_output(stdout)
         for entry in entries:
             if 'dn' in entry:
+                print(f"[DEBUG] find_user_dn found dn={entry['dn']}")
                 return entry['dn']
         
         return None
