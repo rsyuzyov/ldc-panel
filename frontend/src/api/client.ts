@@ -9,7 +9,7 @@ interface ApiError {
 }
 
 // Пути, которые обращаются к контроллеру домена (долгие операции)
-const CONTROLLER_PATHS = ['/ad/', '/dns/', '/dhcp/', '/gpo/', '/backup/']
+const CONTROLLER_PATHS = ['/ad/', '/dns/', '/dhcp/', '/gpo', '/backup/']
 
 // Глобальные колбэки для управления загрузкой
 let onLoadingStart: ((message: string) => void) | null = null

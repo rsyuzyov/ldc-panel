@@ -97,8 +97,8 @@ export function DataTable<T extends { id: string | number }>({
         )}
       </div>
 
-      <div className="border border-gray-200 rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="border border-gray-200 rounded-lg overflow-hidden flex flex-col" style={{ maxHeight: 'calc(100vh - 300px)' }}>
+        <div className="overflow-x-auto flex-shrink-0">
           <table className="w-full">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
@@ -120,6 +120,10 @@ export function DataTable<T extends { id: string | number }>({
                 {showActions && <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 w-32">Действия</th>}
               </tr>
             </thead>
+          </table>
+        </div>
+        <div className="overflow-y-auto overflow-x-auto flex-1">
+          <table className="w-full">
             <tbody className="bg-white divide-y divide-gray-200">
               {sortedData.length === 0 ? (
                 <tr>
@@ -131,12 +135,12 @@ export function DataTable<T extends { id: string | number }>({
                 sortedData.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                     {columns.map((column) => (
-                      <td key={column.key} className="px-4 py-3 text-sm text-gray-900">
+                      <td key={column.key} className="px-4 py-3 text-sm text-gray-900" style={{ width: column.width }}>
                         {String((item as Record<string, unknown>)[column.key] ?? '')}
                       </td>
                     ))}
                     {showActions && (
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 w-32">
                         <div className="flex items-center gap-2">
                           {customActions?.map((action, idx) => (
                             <button key={idx} onClick={() => action.onClick(item)} className={action.className || "p-1 text-gray-600 hover:bg-gray-50 rounded transition-colors"} title={action.title}>
