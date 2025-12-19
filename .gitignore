@@ -39,6 +39,9 @@ secrets.json
 .env.local
 .env.production
 
+# Tests config
+tests/config.json
+
 # Node
 node_modules/
 npm-debug.log

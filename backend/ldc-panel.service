@@ -1,0 +1,15 @@
+[Unit]
+Description=LDC Panel - Linux DC Panel
+After=network.target
+
+[Service]
+Type=exec
+User=root
+WorkingDirectory=/opt/ldc-panel/backend
+ExecStart=/opt/ldc-panel/backend/venv/bin/gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker -b 127.0.0.1:8000
+Restart=always
+RestartSec=5
+Environment=LDC_DEBUG=false
+
+[Install]
+WantedBy=multi-user.target

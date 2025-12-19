@@ -1,0 +1,4 @@
+# file: C:\Users\rsyuzyov\repo\ldc-panel\backend\app\services\ldap_cmd.py
+# hypothesis_version: 6.148.7
+
+['-', '512', 'add', 'ascii', 'attribute', 'changetype: add', 'changetype: modify', 'cn', 'delete', 'givenName', 'mail', 'member', 'objectClass', 'operation', 'organizationalPerson', 'person', 'replace', 'sAMAccountName', 'sn', 'top', 'unicodePwd', 'user', 'userAccountControl', 'userPrincipalName', 'utf-16-le', 'value']
