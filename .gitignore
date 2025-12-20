@@ -39,6 +39,7 @@ secrets.json
 .env.local
 .env.production
 backend/servers.yaml
+config.yaml
 
 # Tests
 tests/config.json
