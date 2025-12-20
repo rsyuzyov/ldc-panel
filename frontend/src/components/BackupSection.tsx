@@ -106,7 +106,7 @@ export function BackupSection({ serverId }: BackupSectionProps) {
           <p className="text-sm text-gray-600 mt-1">Создание и восстановление бэкапов AD и DHCP</p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={handleBackupLdif} disabled={loading} className="bg-blue-600 hover:bg-blue-700">
+          <Button onClick={handleBackupLdif} disabled={loading} className="bg-gray-600 hover:bg-gray-700">
             Бэкап LDIF
           </Button>
           <Button onClick={handleBackupDhcp} disabled={loading} variant="outline">

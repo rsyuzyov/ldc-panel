@@ -55,7 +55,7 @@ async def backup_ldif(
         
         # Execute ldapsearch to create backup
         base_dn = server.base_dn or "DC=domain,DC=local"
-        cmd = f'ldapsearch -H ldapi:/// -b "{base_dn}" "(objectClass=*)" > {filepath}'
+        cmd = f'ldapsearch -x -H ldap://localhost -b "{base_dn}" "(objectClass=*)" > {filepath}'
         
         exit_code, stdout, stderr = ssh.execute(cmd)
         

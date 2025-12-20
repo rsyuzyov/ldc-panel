@@ -57,9 +57,8 @@ export function DataTable<T extends { id: string | number }>({
             className="pl-9"
           />
         </div>
-        <Button onClick={onAdd} className="bg-blue-600 hover:bg-blue-700">
-          <Plus className="w-4 h-4 mr-2" />
-          Добавить
+        <Button onClick={onAdd} className="bg-gray-600 hover:bg-gray-700">
+          <Plus className="w-4 h-4" />
         </Button>
       </div>
 
