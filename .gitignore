@@ -38,6 +38,7 @@ logs/
 secrets.json
 .env.local
 .env.production
+backend/servers.yaml
 
 # Tests
 tests/config.json
