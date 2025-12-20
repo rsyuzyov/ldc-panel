@@ -6,14 +6,23 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
+import { MultiSelect } from './ui/multi-select'
 import { api } from '../api/client'
+
+interface ADGroup {
+  dn: string
+  cn: string
+  sAMAccountName: string
+}
 
 interface User {
   id: string
+  dn: string
   username: string
   fullName: string
   email: string
   groups: string
+  groupDns: string[]
   enabled: string
 }
 
@@ -40,13 +49,16 @@ interface UsersSectionProps {
 export function UsersSection({ serverId }: UsersSectionProps) {
   const [users, setUsers] = useState<User[]>([])
   const [computers, setComputers] = useState<Computer[]>([])
-  const [serviceAccounts, setServiceAccounts] = useState<ServiceAccount[]>([])
+  const [, setServiceAccounts] = useState<ServiceAccount[]>([])
+  const [allGroups, setAllGroups] = useState<ADGroup[]>([])
   const [loading, setLoading] = useState(true)
+  const [groupsLoading] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogType, setDialogType] = useState<'user' | 'computer'>('user')
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [editingComputer, setEditingComputer] = useState<Computer | null>(null)
   const [userFormData, setUserFormData] = useState({ username: '', fullName: '', email: '', groups: 'Domain Users', enabled: 'Да' })
+  const [selectedGroupDns, setSelectedGroupDns] = useState<string[]>([])
   const [computerFormData, setComputerFormData] = useState({ name: '', os: '', ip: '', lastSeen: '', status: 'Онлайн' })
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
   const [passwordUser, setPasswordUser] = useState<User | null>(null)
@@ -59,26 +71,36 @@ export function UsersSection({ serverId }: UsersSectionProps) {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [usersData, computersData, serviceData] = await Promise.all([
+      const [usersData, computersData, serviceData, groupsData] = await Promise.all([
         api.getUsers(serverId),
         api.getComputers(serverId).catch(() => []),
         api.getServiceAccounts(serverId).catch(() => []),
+        api.getGroups(serverId).catch(() => []),
       ])
+
+      setAllGroups(groupsData.map((g: any) => ({
+        dn: g.dn,
+        cn: g.cn,
+        sAMAccountName: g.sAMAccountName,
+      })))
 
       setUsers(
         usersData.map((u: any) => {
           // memberOf содержит DN групп в base64, декодируем и извлекаем CN
           const memberOf = u.memberOf || u.groups || []
-          const groupNames = (Array.isArray(memberOf) ? memberOf : [memberOf])
-            .map((dn: string) => {
-              // Сначала декодируем base64
-              let decoded = dn
-              try {
-                decoded = decodeURIComponent(escape(atob(dn)))
-              } catch {
-                // Не base64, оставляем как есть
-              }
-              // Извлекаем первый CN из DN (имя группы)
+          const memberOfArray = Array.isArray(memberOf) ? memberOf : [memberOf]
+          
+          // Декодируем DN групп
+          const decodedDns = memberOfArray.map((dn: string) => {
+            try {
+              return decodeURIComponent(escape(atob(dn)))
+            } catch {
+              return dn
+            }
+          })
+          
+          const groupNames = decodedDns
+            .map((decoded: string) => {
               const match = decoded.match(/CN=([^,]+)/i)
               return match ? match[1] : decoded
             })
@@ -86,10 +108,12 @@ export function UsersSection({ serverId }: UsersSectionProps) {
           
           return {
             id: u.dn || u.username,
+            dn: u.dn || '',
             username: u.username || u.sAMAccountName || '',
             fullName: u.fullName || u.displayName || u.cn || '',
             email: u.email || u.mail || '',
             groups: groupNames,
+            groupDns: decodedDns,
             enabled: u.enabled !== false ? 'Да' : 'Нет',
           }
         })
@@ -126,12 +150,14 @@ export function UsersSection({ serverId }: UsersSectionProps) {
     setDialogType('user')
     setEditingUser(null)
     setUserFormData({ username: '', fullName: '', email: '', groups: 'Domain Users', enabled: 'Да' })
+    setSelectedGroupDns([])
     setDialogOpen(true)
   }
   const handleEditUser = (user: User) => {
     setDialogType('user')
     setEditingUser(user)
     setUserFormData({ username: user.username, fullName: user.fullName, email: user.email, groups: user.groups, enabled: user.enabled })
+    setSelectedGroupDns(user.groupDns || [])
     setDialogOpen(true)
   }
   const handleDeleteUser = async (user: User) => {
@@ -182,8 +208,33 @@ export function UsersSection({ serverId }: UsersSectionProps) {
     if (dialogType === 'user') {
       try {
         if (editingUser) {
+          // Обновляем базовые данные пользователя
           await api.updateUser(serverId, editingUser.username, userFormData)
-          setUsers(users.map((u) => (u.id === editingUser.id ? { ...u, ...userFormData } : u)))
+          
+          // Обновляем членство в группах
+          const currentGroupDns = editingUser.groupDns || []
+          const toAdd = selectedGroupDns.filter((dn) => !currentGroupDns.includes(dn))
+          const toRemove = currentGroupDns.filter((dn) => !selectedGroupDns.includes(dn))
+          
+          // Добавляем в новые группы
+          for (const groupDn of toAdd) {
+            try {
+              await api.addUserToGroup(serverId, groupDn, editingUser.dn)
+            } catch (e) {
+              console.error('Failed to add to group:', groupDn, e)
+            }
+          }
+          
+          // Удаляем из старых групп
+          for (const groupDn of toRemove) {
+            try {
+              await api.removeUserFromGroup(serverId, groupDn, editingUser.dn)
+            } catch (e) {
+              console.error('Failed to remove from group:', groupDn, e)
+            }
+          }
+          
+          await loadData()
         } else {
           await api.createUser(serverId, userFormData)
           await loadData()
@@ -264,7 +315,7 @@ export function UsersSection({ serverId }: UsersSectionProps) {
             </DialogTitle>
             <DialogDescription>{dialogType === 'user' ? 'Настройка учётной записи пользователя' : 'Настройка компьютера домена'}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 overflow-hidden">
             {dialogType === 'user' ? (
               <>
                 <div className="space-y-2">
@@ -280,8 +331,14 @@ export function UsersSection({ serverId }: UsersSectionProps) {
                   <Input id="email" type="email" value={userFormData.email} onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })} placeholder="ivanov@domain.local" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="groups">Группы</Label>
-                  <Input id="groups" value={userFormData.groups} onChange={(e) => setUserFormData({ ...userFormData, groups: e.target.value })} placeholder="Domain Users" />
+                  <Label>Группы</Label>
+                  <MultiSelect
+                    options={allGroups.map((g) => ({ value: g.dn, label: g.cn }))}
+                    selected={selectedGroupDns}
+                    onChange={setSelectedGroupDns}
+                    placeholder="Выберите группы..."
+                    loading={groupsLoading}
+                  />
                 </div>
               </>
             ) : (

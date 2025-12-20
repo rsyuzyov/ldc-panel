@@ -199,6 +199,26 @@ class ApiClient {
     })
   }
 
+  // AD Groups
+  async getGroups(serverId: string, search?: string) {
+    const params = new URLSearchParams({ server_id: serverId })
+    if (search) params.append('search', search)
+    return this.request<any[]>(`/ad/groups?${params}`)
+  }
+
+  async addUserToGroup(serverId: string, groupDn: string, userDn: string) {
+    return this.request<any>(`/ad/groups/${encodeURIComponent(groupDn)}/members?server_id=${serverId}`, {
+      method: 'POST',
+      body: JSON.stringify({ member_dn: userDn }),
+    })
+  }
+
+  async removeUserFromGroup(serverId: string, groupDn: string, userDn: string) {
+    return this.request<any>(`/ad/groups/${encodeURIComponent(groupDn)}/members/${encodeURIComponent(userDn)}?server_id=${serverId}`, {
+      method: 'DELETE',
+    })
+  }
+
   // DNS
   async getDnsZones(serverId: string) {
     return this.request<any[]>(`/dns/zones?server_id=${serverId}`)

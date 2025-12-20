@@ -30,11 +30,21 @@ class ADService:
         """Parse ldbsearch output into list of dictionaries.
         
         Handles base64 encoded values (format: key:: base64value)
+        and LDIF line continuation (lines starting with space)
         """
         entries = []
         current_entry = {}
         
+        # Сначала объединяем продолжения строк (строки начинающиеся с пробела)
+        lines = []
         for line in output.split('\n'):
+            if line.startswith(' ') and lines:
+                # Продолжение предыдущей строки
+                lines[-1] += line[1:]
+            else:
+                lines.append(line)
+        
+        for line in lines:
             line = line.strip()
             if not line or line.startswith('#'):
                 if current_entry:
@@ -46,7 +56,12 @@ class ADService:
             if ':: ' in line:
                 key, value = line.split(':: ', 1)
                 try:
-                    value = base64.b64decode(value).decode('utf-8')
+                    decoded = base64.b64decode(value)
+                    # Пробуем UTF-8, затем latin-1
+                    try:
+                        value = decoded.decode('utf-8')
+                    except UnicodeDecodeError:
+                        value = decoded.decode('latin-1')
                 except Exception:
                     pass  # Keep original if decode fails
             elif ': ' in line:
@@ -308,10 +323,19 @@ class ADService:
             if isinstance(members, str):
                 members = [members]
             
+            # cn может быть списком, берём первый элемент
+            cn = entry.get('cn', '')
+            if isinstance(cn, list):
+                cn = cn[0] if cn else ''
+            
+            sam = entry.get('sAMAccountName', '')
+            if isinstance(sam, list):
+                sam = sam[0] if sam else ''
+            
             groups.append(ADGroup(
                 dn=entry['dn'],
-                cn=entry.get('cn', ''),
-                sAMAccountName=entry.get('sAMAccountName', ''),
+                cn=cn,
+                sAMAccountName=sam,
                 description=entry.get('description'),
                 member=members,
                 groupType=int(entry.get('groupType', -2147483646)),
