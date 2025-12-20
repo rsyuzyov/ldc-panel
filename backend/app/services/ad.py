@@ -344,53 +344,47 @@ class ADService:
         return groups, ""
     
     def add_group_member(self, group_dn: str, member_dn: str) -> Tuple[bool, str]:
-        """Add a member to a group."""
-        ldif = generate_group_member_add_ldif(group_dn, member_dn)
+        """Add a member to a group using samba-tool."""
+        # Извлекаем CN группы из DN
+        import re
+        match = re.match(r'CN=([^,]+)', group_dn, re.IGNORECASE)
+        if not match:
+            return False, f"Invalid group DN: {group_dn}"
+        group_cn = match.group(1)
         
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ldif', delete=False) as f:
-            f.write(ldif)
-            temp_path = f.name
+        # Извлекаем sAMAccountName пользователя из DN
+        match = re.match(r'CN=([^,]+)', member_dn, re.IGNORECASE)
+        if not match:
+            return False, f"Invalid member DN: {member_dn}"
+        member_cn = match.group(1)
         
-        try:
-            sftp = self.ssh.client.open_sftp()
-            remote_path = "/tmp/add_member.ldif"
-            sftp.put(temp_path, remote_path)
-            sftp.close()
-            
-            cmd = f'ldbmodify -H /var/lib/samba/private/sam.ldb {remote_path}'
-            exit_code, stdout, stderr = self.ssh.execute(cmd)
-            
-            self.ssh.execute(f'rm -f {remote_path}')
-            
-            if exit_code != 0:
-                return False, stderr or stdout
-            
-            return True, ""
-        finally:
-            os.unlink(temp_path)
+        cmd = f'samba-tool group addmembers "{group_cn}" "{member_cn}"'
+        exit_code, stdout, stderr = self.ssh.execute(cmd)
+        
+        if exit_code != 0:
+            return False, stderr or stdout
+        
+        return True, ""
     
     def remove_group_member(self, group_dn: str, member_dn: str) -> Tuple[bool, str]:
-        """Remove a member from a group."""
-        ldif = generate_group_member_delete_ldif(group_dn, member_dn)
+        """Remove a member from a group using samba-tool."""
+        # Извлекаем CN группы из DN
+        import re
+        match = re.match(r'CN=([^,]+)', group_dn, re.IGNORECASE)
+        if not match:
+            return False, f"Invalid group DN: {group_dn}"
+        group_cn = match.group(1)
         
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ldif', delete=False) as f:
-            f.write(ldif)
-            temp_path = f.name
+        # Извлекаем sAMAccountName пользователя из DN
+        match = re.match(r'CN=([^,]+)', member_dn, re.IGNORECASE)
+        if not match:
+            return False, f"Invalid member DN: {member_dn}"
+        member_cn = match.group(1)
         
-        try:
-            sftp = self.ssh.client.open_sftp()
-            remote_path = "/tmp/del_member.ldif"
-            sftp.put(temp_path, remote_path)
-            sftp.close()
-            
-            cmd = f'ldbmodify -H /var/lib/samba/private/sam.ldb {remote_path}'
-            exit_code, stdout, stderr = self.ssh.execute(cmd)
-            
-            self.ssh.execute(f'rm -f {remote_path}')
-            
-            if exit_code != 0:
-                return False, stderr or stdout
-            
-            return True, ""
-        finally:
-            os.unlink(temp_path)
+        cmd = f'samba-tool group removemembers "{group_cn}" "{member_cn}"'
+        exit_code, stdout, stderr = self.ssh.execute(cmd)
+        
+        if exit_code != 0:
+            return False, stderr or stdout
+        
+        return True, ""

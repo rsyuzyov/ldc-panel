@@ -3,6 +3,31 @@ import base64
 from typing import Optional, Dict, Any, List
 
 
+def needs_base64(value: str) -> bool:
+    """Check if value needs base64 encoding (contains non-ASCII)."""
+    try:
+        value.encode('ascii')
+        return False
+    except UnicodeEncodeError:
+        return True
+
+
+def encode_ldif_value(attr: str, value: str) -> str:
+    """Encode attribute value for LDIF, using base64 if needed."""
+    if needs_base64(value):
+        encoded = base64.b64encode(value.encode('utf-8')).decode('ascii')
+        return f"{attr}:: {encoded}"
+    return f"{attr}: {value}"
+
+
+def encode_ldif_dn(dn: str) -> str:
+    """Encode DN for LDIF, using base64 if needed."""
+    if needs_base64(dn):
+        encoded = base64.b64encode(dn.encode('utf-8')).decode('ascii')
+        return f"dn:: {encoded}"
+    return f"dn: {dn}"
+
+
 def encode_unicode_pwd(password: str) -> str:
     """Encode password for unicodePwd attribute.
     
@@ -61,13 +86,13 @@ def generate_ldif_modify(dn: str, modifications: List[Dict[str, Any]]) -> str:
                       operation can be 'replace', 'add', 'delete'
         
     Returns:
-        LDIF string for modify operation (without changetype for ldbmodify)
+        LDIF string for modify operation
     """
     if not modifications:
         return ""
     
     lines = [
-        f"dn: {dn}",
+        encode_ldif_dn(dn),
     ]
     
     for i, mod in enumerate(modifications):
@@ -81,7 +106,7 @@ def generate_ldif_modify(dn: str, modifications: List[Dict[str, Any]]) -> str:
             if attribute == "unicodePwd":
                 lines.append(f"{attribute}:: {value}")
             else:
-                lines.append(f"{attribute}: {value}")
+                lines.append(encode_ldif_value(attribute, value))
         
         # Add separator between modifications (except for last one)
         if i < len(modifications) - 1:

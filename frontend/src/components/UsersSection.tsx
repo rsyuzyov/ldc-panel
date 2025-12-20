@@ -86,23 +86,14 @@ export function UsersSection({ serverId }: UsersSectionProps) {
 
       setUsers(
         usersData.map((u: any) => {
-          // memberOf содержит DN групп в base64, декодируем и извлекаем CN
-          const memberOf = u.memberOf || u.groups || []
+          // memberOf содержит DN групп (уже декодированы на бэкенде)
+          const memberOf = u.memberOf || []
           const memberOfArray = Array.isArray(memberOf) ? memberOf : [memberOf]
           
-          // Декодируем DN групп
-          const decodedDns = memberOfArray.map((dn: string) => {
-            try {
-              return decodeURIComponent(escape(atob(dn)))
-            } catch {
-              return dn
-            }
-          })
-          
-          const groupNames = decodedDns
-            .map((decoded: string) => {
-              const match = decoded.match(/CN=([^,]+)/i)
-              return match ? match[1] : decoded
+          const groupNames = memberOfArray
+            .map((dn: string) => {
+              const match = dn.match(/CN=([^,]+)/i)
+              return match ? match[1] : dn
             })
             .join(', ')
           
@@ -113,7 +104,7 @@ export function UsersSection({ serverId }: UsersSectionProps) {
             fullName: u.fullName || u.displayName || u.cn || '',
             email: u.email || u.mail || '',
             groups: groupNames,
-            groupDns: decodedDns,
+            groupDns: memberOfArray,
             enabled: u.enabled !== false ? 'Да' : 'Нет',
           }
         })
@@ -219,9 +210,11 @@ export function UsersSection({ serverId }: UsersSectionProps) {
           // Добавляем в новые группы
           for (const groupDn of toAdd) {
             try {
+              console.log('Adding to group:', groupDn, 'user:', editingUser.dn)
               await api.addUserToGroup(serverId, groupDn, editingUser.dn)
-            } catch (e) {
+            } catch (e: any) {
               console.error('Failed to add to group:', groupDn, e)
+              alert(`Ошибка добавления в группу: ${e.message}`)
             }
           }
           
@@ -229,8 +222,9 @@ export function UsersSection({ serverId }: UsersSectionProps) {
           for (const groupDn of toRemove) {
             try {
               await api.removeUserFromGroup(serverId, groupDn, editingUser.dn)
-            } catch (e) {
+            } catch (e: any) {
               console.error('Failed to remove from group:', groupDn, e)
+              alert(`Ошибка удаления из группы: ${e.message}`)
             }
           }
           
