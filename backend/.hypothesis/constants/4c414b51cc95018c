@@ -1,4 +1,0 @@
-# file: C:\Users\rsyuzyov\repo\ldc-panel\backend\app\models\dns.py
-# hypothesis_version: 6.148.7
-
-[3600, 'A', 'AAAA', 'CNAME', 'MX', 'NS', 'PTR', 'SRV', 'TXT', 'forward']

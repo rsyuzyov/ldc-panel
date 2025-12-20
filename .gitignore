@@ -39,8 +39,13 @@ secrets.json
 .env.local
 .env.production
 
-# Tests config
+# Tests
 tests/config.json
+.pytest_cache/
+.hypothesis/
+
+# Kiro
+.agent/
 
 # Node
 node_modules/

@@ -1,4 +1,0 @@
-# file: C:\Users\rsyuzyov\repo\ldc-panel\backend\app\services\dhcp_parser.py
-# hypothesis_version: 6.148.7
-
-['active', 'authoritative;', 'ends\\s+\\d+\\s+([^;]+)', '}']
