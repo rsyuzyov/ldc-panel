@@ -6,6 +6,7 @@ import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { api } from '../api/client'
+import logger from '../utils/logger'
 
 interface DNSRecord {
   id: string
@@ -46,7 +47,7 @@ export function DNSSection({ serverId }: DNSSectionProps) {
       const data = await api.getDnsAll(serverId)
       const zoneNames = data.zones.map((z: any) => z.name || z.zone || z)
       setZones(zoneNames)
-      
+
       if (data.currentZone) {
         setCurrentZone(data.currentZone)
         setRecords(data.records.map((r: any, i: number) => ({
@@ -61,7 +62,7 @@ export function DNSSection({ serverId }: DNSSectionProps) {
         setCurrentZone(zoneNames[0])
       }
     } catch (e) {
-      console.error('Failed to load DNS data:', e)
+      logger.error('Failed to load DNS data', e as Error)
       setZones([])
     } finally {
       setLoading(false)
@@ -81,7 +82,7 @@ export function DNSSection({ serverId }: DNSSectionProps) {
         zone: zone,
       })))
     } catch (e) {
-      console.error('Failed to load DNS records:', e)
+      logger.error('Failed to load DNS records', e as Error)
       setRecords([])
     } finally {
       setLoading(false)

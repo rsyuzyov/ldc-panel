@@ -1,8 +1,16 @@
 """LDC Panel - Linux DC Panel Backend"""
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, servers, users, computers, groups, dns, dhcp, gpo, backup, logs
+from app.api import auth, servers, users, computers, groups, dns, dhcp, gpo, backup, logs, frontend_logs, service_accounts
+from app.logger import cleanup_old_logs, get_logger
+from app.config import settings
+
+# Initialize logging
+cleanup_old_logs(settings.logs_dir, max_age_days=30)
+
+logger = get_logger("main")
 
 app = FastAPI(
     title="LDC Panel",
@@ -23,12 +31,14 @@ app.include_router(auth.router)
 app.include_router(servers.router)
 app.include_router(users.router)
 app.include_router(computers.router)
+app.include_router(service_accounts.router)
 app.include_router(groups.router)
 app.include_router(dns.router)
 app.include_router(dhcp.router)
 app.include_router(gpo.router)
 app.include_router(backup.router)
 app.include_router(logs.router)
+app.include_router(frontend_logs.router)
 
 
 @app.get("/api/health")
@@ -68,4 +78,4 @@ if frontend_dir.exists():
         # Serve index.html for everything else (SPA routing)
         return FileResponse(str(frontend_dir / "index.html"))
 else:
-    print(f"Warning: Frontend directory {frontend_dir} not found. Frontend will not be served.")
+    logger.warning(f"Frontend directory {frontend_dir} not found. Frontend will not be served.")

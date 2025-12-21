@@ -1,6 +1,8 @@
 """DNS API endpoints"""
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional, List
+import traceback
+import re
 
 from app.api.auth import get_current_user
 from app.models.dns import DNSZone, DNSRecordCreate, DNSRecordResponse, DNSRecordType
@@ -14,6 +16,9 @@ from app.services.samba_tool import (
     generate_dns_delete_command,
     KERBEROS_FLAG,
 )
+from app.logger import get_logger
+
+logger = get_logger("api.dns")
 
 router = APIRouter(prefix="/api/dns", tags=["dns"])
 
@@ -54,10 +59,43 @@ def get_dns_ssh(server_id: str, use_pool: bool = True) -> tuple[SSHService, bool
     return ssh, from_pool
 
 
+
 def release_ssh(ssh: SSHService, from_pool: bool) -> None:
     """Освободить SSH соединение."""
     if not from_pool:
         ssh.disconnect()
+
+
+def get_domain_dn(ssh: SSHService, server) -> str:
+    """Get domain DN from server config or RootDSE."""
+    if server.base_dn:
+        logger.info(f"Using configured Base DN: {server.base_dn}")
+        return server.base_dn
+        
+    # Query RootDSE
+    cmd = f"ldbsearch -H ldap://{server.host} -k yes -b '' -s base defaultNamingContext"
+    logger.info(f"RootDSE search cmd: {cmd}")
+    exit_code, stdout, stderr = ssh.execute(cmd)
+    
+    if exit_code == 0:
+        for line in stdout.split('\n'):
+            logger.info(f"RootDSE line: {line.strip()}")
+            if line.strip().startswith('defaultNamingContext:'):
+                return line.split(':', 1)[1].strip()
+    else:
+        logger.warning(f"RootDSE search failed: {stderr}")
+
+    # Fallback
+                
+    # Fallback to trying to construct from domain name if available, or error?
+    # For now let's hope we have it or can construct it from server host (subdomain assumption might be wrong)
+    # But usually RootDSE works. If not, let's try to infer from hostname if it looks like a domain
+    parts = server.host.split('.')
+    if len(parts) > 1:
+        # Assuming host is like dc1.domain.local
+        return ",".join([f"DC={p}" for p in parts[1:]])
+    
+    raise HTTPException(status_code=500, detail="Не удалось определить Base DN домена")
 
 
 @router.get("/zones", response_model=List[DNSZone])
@@ -65,31 +103,47 @@ async def get_zones(
     server_id: str = Query(..., description="ID сервера"),
     username: str = Depends(get_current_user),
 ):
-    """Get list of DNS zones."""
+    """Get list of DNS zones using ldbsearch."""
     ssh, from_pool = get_dns_ssh(server_id)
     server = server_store.get_by_id(server_id)
     
     try:
-        cmd = generate_dns_zonelist_command(server.host)
-        exit_code, stdout, stderr = ssh.execute(cmd)
-        
-        print(f"[DEBUG] DNS zonelist: exit_code={exit_code}, stdout={stdout[:200] if stdout else ''}")
-        
-        if exit_code != 0:
-            raise HTTPException(status_code=500, detail=stderr)
-        
+        domain_dn = get_domain_dn(ssh, server)
         zones = []
-        for line in stdout.split('\n'):
-            line = line.strip()
-            # Parse only pszZoneName lines
-            if line.startswith('pszZoneName') and ':' in line:
-                zone_name = line.split(':', 1)[1].strip()
-                if zone_name:
-                    zone_type = "reverse" if ".in-addr.arpa" in zone_name else "forward"
-                    zones.append(DNSZone(name=zone_name, type=zone_type))
         
-        print(f"[DEBUG] Parsed zones: {[z.name for z in zones]}")
+        # Helper to search in a partition
+        def search_partition(partition_dn):
+            cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{partition_dn},{domain_dn}" "(objectClass=dnsZone)" name'
+            logger.info(f"Zone search cmd: {cmd}")
+            exit_code, stdout, stderr = ssh.execute(cmd)
+            
+            logger.info(f"Exit: {exit_code}, Stdout len: {len(stdout)}, Stderr: {stderr}")
+            
+            if exit_code != 0:
+                logger.warning(f"Zone search failed for {partition_dn}: {stderr}")
+                return
+                
+            for line in stdout.split('\n'):
+                logger.info(f"Parsing line: {line.strip()}")
+                line = line.strip()
+                if line.startswith('name:'):
+                    name = line.split(':', 1)[1].strip()
+                    if name and name != '@' and not name.startswith('..'):
+                        zone_type = "reverse" if ".in-addr.arpa" in name else "forward"
+                        # Avoid duplicates
+                        if not any(z.name == name for z in zones):
+                            zones.append(DNSZone(name=name, type=zone_type))
+
+        # Search in DomainDnsZones and ForestDnsZones
+        search_partition("CN=MicrosoftDNS,DC=DomainDnsZones")
+        search_partition("CN=MicrosoftDNS,DC=ForestDnsZones")
+        
+        logger.debug(f"Parsed zones: {[z.name for z in zones]}")
         return zones
+    except Exception as e:
+        logger.error(f"Error in get_zones: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         release_ssh(ssh, from_pool)
 
@@ -119,14 +173,14 @@ async def get_zone_records(
         
         # Получаем записи через ldbsearch с dnsRecord
         cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{base_dn}" "(objectClass=dnsNode)" name dnsRecord --show-binary'
-        print(f"[DEBUG] DNS ldbsearch command: {cmd}")
+        logger.debug(f"DNS ldbsearch command: {cmd}")
         exit_code, stdout, stderr = ssh.execute(cmd)
-        print(f"[DEBUG] DNS ldbsearch result: exit={exit_code}")
+        logger.debug(f"DNS ldbsearch result: exit={exit_code}")
         if exit_code == 0:
             # Ищем запись ldc-test-record для отладки
             if 'ldc-test-record' in stdout:
                 idx = stdout.find('ldc-test-record')
-                print(f"[DEBUG] ldc-test-record context: {stdout[idx:idx+800]}")
+                logger.debug(f"ldc-test-record context: {stdout[idx:idx+800]}")
         
         if exit_code != 0:
             base_dn = f"DC={zone},CN=MicrosoftDNS,DC=ForestDnsZones,{domain_dn}"
@@ -208,7 +262,7 @@ async def get_zone_records(
                 ttl=rec.get('ttl', 3600),
             ))
         
-        print(f"[DEBUG] Found {len(result)} DNS records")
+        logger.debug(f"Found {len(result)} DNS records")
         return result
     finally:
         release_ssh(ssh, from_pool)
@@ -223,7 +277,7 @@ async def create_record(
 ):
     """Create a DNS record."""
     import re
-    print(f"[DEBUG] create_record: zone={zone}, record={record}")
+    logger.debug(f"create_record: zone={zone}, record={record}")
     ssh, from_pool = get_dns_ssh(server_id)
     server = server_store.get_by_id(server_id)
     
@@ -253,7 +307,7 @@ async def create_record(
                     record_type=record.type,
                     data=old_value,
                 )
-                print(f"[DEBUG] Deleting existing record: {delete_cmd}")
+                logger.debug(f"Deleting existing record: {delete_cmd}")
                 ssh.execute(delete_cmd)
         
         cmd = generate_dns_add_command(
@@ -267,10 +321,10 @@ async def create_record(
             srv_weight=record.srv_weight,
             srv_port=record.srv_port,
         )
-        print(f"[DEBUG] DNS add command: {cmd}")
+        logger.debug(f"DNS add command: {cmd}")
         
         exit_code, stdout, stderr = ssh.execute(cmd)
-        print(f"[DEBUG] DNS add result: exit={exit_code}, stdout={stdout}, stderr={stderr}")
+        logger.debug(f"DNS add result: exit={exit_code}, stdout={stdout}, stderr={stderr}")
         
         if exit_code != 0:
             raise HTTPException(status_code=500, detail=stderr)
@@ -350,7 +404,7 @@ async def update_record(
 ):
     """Update a DNS record (delete old + create new per Requirement 6.5)."""
     import re
-    print(f"[DEBUG] update_record: zone={zone}, name={name}, type={record_type}, data={update_data}")
+    logger.debug(f"update_record: zone={zone}, name={name}, type={record_type}, data={update_data}")
     ssh, from_pool = get_dns_ssh(server_id)
     server = server_store.get_by_id(server_id)
     
@@ -371,7 +425,7 @@ async def update_record(
         
         cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{record_dn}" -s base dnsRecord --show-binary'
         exit_code, stdout, stderr = ssh.execute(cmd)
-        print(f"[DEBUG] update ldbsearch: exit={exit_code}")
+        logger.debug(f"update ldbsearch: exit={exit_code}")
         
         old_value = None
         if exit_code == 0:
@@ -379,7 +433,7 @@ async def update_record(
             if ip_match:
                 old_value = ip_match.group(1)
         
-        print(f"[DEBUG] old_value={old_value}, new_value={new_value}")
+        logger.debug(f"old_value={old_value}, new_value={new_value}")
         
         # Удаляем старую запись если нашли значение
         if old_value:
@@ -390,9 +444,9 @@ async def update_record(
                 record_type=DNSRecordType(record_type),
                 data=old_value,
             )
-            print(f"[DEBUG] delete cmd: {delete_cmd}")
+            logger.debug(f"delete cmd: {delete_cmd}")
             del_exit, del_out, del_err = ssh.execute(delete_cmd)
-            print(f"[DEBUG] delete result: exit={del_exit}, err={del_err}")
+            logger.debug(f"delete result: exit={del_exit}, err={del_err}")
         
         # Создаём новую запись
         add_cmd = generate_dns_add_command(
@@ -402,10 +456,10 @@ async def update_record(
             record_type=DNSRecordType(record_type),
             data=new_value,
         )
-        print(f"[DEBUG] add cmd: {add_cmd}")
+        logger.debug(f"add cmd: {add_cmd}")
         
         exit_code, stdout, stderr = ssh.execute(add_cmd)
-        print(f"[DEBUG] add result: exit={exit_code}, out={stdout}, err={stderr}")
+        logger.debug(f"add result: exit={exit_code}, out={stdout}, err={stderr}")
         
         if exit_code != 0:
             raise HTTPException(status_code=500, detail=stderr)
@@ -427,23 +481,35 @@ async def get_all_dns_data(
     server = server_store.get_by_id(server_id)
     
     try:
-        # Получаем зоны
-        cmd = generate_dns_zonelist_command(server.host)
-        exit_code, stdout, stderr = ssh.execute(cmd)
-        
-        if exit_code != 0:
-            raise HTTPException(status_code=500, detail=stderr)
-        
+        domain_dn = get_domain_dn(ssh, server)
         zones = []
-        for line in stdout.split('\n'):
-            line = line.strip()
-            if line.startswith('pszZoneName') and ':' in line:
-                zone_name = line.split(':', 1)[1].strip()
-                if zone_name:
-                    zone_type = "reverse" if ".in-addr.arpa" in zone_name else "forward"
-                    zones.append(DNSZone(name=zone_name, type=zone_type))
         
-        # Находим первую forward-зону
+        # Helper to search zones
+        def search_partition(partition_dn):
+            cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{partition_dn},{domain_dn}" "(objectClass=dnsZone)" name'
+            logger.info(f"Zone search cmd (all): {cmd}")
+            exit_code, stdout, stderr = ssh.execute(cmd)
+            
+            logger.info(f"Exit: {exit_code}, Stdout len: {len(stdout)}, Stderr: {stderr}")
+            
+            if exit_code != 0:
+                return
+                
+            for line in stdout.split('\n'):
+                logger.info(f"Parsing line (all): {line.strip()}")
+                line = line.strip()
+                if line.startswith('name:'):
+                    name = line.split(':', 1)[1].strip()
+                    if name and name != '@' and not name.startswith('..'):
+                        zone_type = "reverse" if ".in-addr.arpa" in name else "forward"
+                        if not any(z.name == name for z in zones):
+                            zones.append(DNSZone(name=name, type=zone_type))
+
+        # Get zones
+        search_partition("CN=MicrosoftDNS,DC=DomainDnsZones")
+        search_partition("CN=MicrosoftDNS,DC=ForestDnsZones")
+        
+        # Find first forward zone
         first_zone = next((z for z in zones if z.type == "forward"), None)
         records = []
         current_zone = None
@@ -451,94 +517,97 @@ async def get_all_dns_data(
         if first_zone:
             current_zone = first_zone.name
             
-            # Формируем base_dn
-            if server.base_dn:
-                domain_dn = server.base_dn
-            else:
-                domain_parts = first_zone.name.split(".")
-                domain_dn = ",".join([f"DC={p}" for p in domain_parts])
+            # Search records in both partitions because the zone could be in either
+            # We check where the zone object was found or just search both for records
+            # Searching both is safer as we don't track which partition the zone came from above
             
-            base_dn = f"DC={first_zone.name},CN=MicrosoftDNS,DC=DomainDnsZones,{domain_dn}"
-            cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{base_dn}" "(objectClass=dnsNode)" name dnsRecord --show-binary'
-            exit_code, stdout, stderr = ssh.execute(cmd)
+            partitions = [
+                f"DC={first_zone.name},CN=MicrosoftDNS,DC=DomainDnsZones,{domain_dn}",
+                f"DC={first_zone.name},CN=MicrosoftDNS,DC=ForestDnsZones,{domain_dn}"
+            ]
             
-            if exit_code != 0:
-                base_dn = f"DC={first_zone.name},CN=MicrosoftDNS,DC=ForestDnsZones,{domain_dn}"
+            for base_dn in partitions:
                 cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{base_dn}" "(objectClass=dnsNode)" name dnsRecord --show-binary'
                 exit_code, stdout, stderr = ssh.execute(cmd)
-            
-            if exit_code == 0:
-                # Парсим записи
-                current_name = None
-                current_ips = []
                 
-                for line in stdout.split('\n'):
-                    line_stripped = line.strip()
+                if exit_code == 0:
+                    # Parse records
+                    current_name = None
+                    current_ips = []
                     
-                    if line_stripped.startswith('name:'):
-                        if current_name and current_ips:
-                            for ip in current_ips:
+                    for line in stdout.split('\n'):
+                        line_stripped = line.strip()
+                        
+                        if line_stripped.startswith('name:'):
+                            if current_name and current_ips:
+                                for ip in current_ips:
+                                    records.append({
+                                        'name': current_name,
+                                        'type': 'A',
+                                        'data': ip,
+                                        'ttl': 3600,
+                                    })
+                            elif current_name:
                                 records.append({
                                     'name': current_name,
                                     'type': 'A',
-                                    'data': ip,
+                                    'data': '',
                                     'ttl': 3600,
                                 })
-                        elif current_name:
+                            
+                            current_name = line_stripped.split(':', 1)[1].strip()
+                            current_ips = []
+                        elif line_stripped.startswith('ipv4'):
+                            if ':' in line_stripped:
+                                ip = line_stripped.split(':', 1)[1].strip()
+                                if ip and re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip):
+                                    current_ips.append(ip)
+                    
+                    # Flush last
+                    if current_name and current_ips:
+                        for ip in current_ips:
                             records.append({
                                 'name': current_name,
                                 'type': 'A',
-                                'data': '',
+                                'data': ip,
                                 'ttl': 3600,
                             })
-                        
-                        current_name = line_stripped.split(':', 1)[1].strip()
-                        current_ips = []
-                    elif line_stripped.startswith('ipv4'):
-                        if ':' in line_stripped:
-                            ip = line_stripped.split(':', 1)[1].strip()
-                            if ip and re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip):
-                                current_ips.append(ip)
-                
-                if current_name and current_ips:
-                    for ip in current_ips:
+                    elif current_name:
                         records.append({
                             'name': current_name,
                             'type': 'A',
-                            'data': ip,
+                            'data': '',
                             'ttl': 3600,
                         })
-                elif current_name:
-                    records.append({
-                        'name': current_name,
-                        'type': 'A',
-                        'data': '',
-                        'ttl': 3600,
-                    })
-                
-                # Фильтруем
-                seen = set()
-                filtered = []
-                for rec in records:
-                    name = rec.get('name', '')
-                    if not name or name == '@' or name.startswith('_') or name.startswith('..'):
-                        continue
-                    key = f"{name}:{rec.get('data', '')}"
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    filtered.append(DNSRecordResponse(
-                        name=name,
-                        type=rec.get('type', 'A'),
-                        data=rec.get('data', ''),
-                        ttl=rec.get('ttl', 3600),
-                    ))
-                records = filtered
+
+        # Process and filter records
+        seen = set()
+        filtered_records = []
+        for rec in records:
+            name = rec.get('name', '')
+            if not name or name == '@' or name.startswith('_') or name.startswith('..'):
+                continue
+            
+            key = f"{name}:{rec.get('data', '')}"
+            if key in seen:
+                continue
+            seen.add(key)
+            
+            filtered_records.append(DNSRecordResponse(
+                name=name,
+                type=rec.get('type', 'A'),
+                data=rec.get('data', ''),
+                ttl=rec.get('ttl', 3600),
+            ))
         
         return {
             "zones": zones,
-            "records": records,
+            "records": filtered_records,
             "currentZone": current_zone
         }
+    except Exception as e:
+        logger.error(f"Error in get_all_dns_data: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         release_ssh(ssh, from_pool)

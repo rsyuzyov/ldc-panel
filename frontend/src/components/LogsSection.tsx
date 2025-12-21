@@ -3,6 +3,7 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { api } from '../api/client'
+import logger from '../utils/logger'
 
 interface LogEntry {
   timestamp: string
@@ -26,7 +27,7 @@ export function LogsSection() {
       const data = await api.getLogs(200)
       setLogs(data)
     } catch (err) {
-      console.error('Failed to load logs:', err)
+      logger.error('Failed to load logs', err as Error)
     } finally {
       setLoading(false)
     }

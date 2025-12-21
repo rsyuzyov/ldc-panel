@@ -88,6 +88,14 @@ class ServerStore:
         for server in servers:
             if server.id == server_id:
                 return server
+        
+        # Fallback: попробовать найти сервер, заменив точки на дефисы
+        # Фронтенд может присылать host вместо id (srv-dc1.ag.local вместо srv-dc1-ag-local)
+        normalized_id = server_id.replace(".", "-")
+        for server in servers:
+            if server.id == normalized_id:
+                return server
+                
         return None
     
     def add(self, server: ServerConfig) -> ServerConfig:

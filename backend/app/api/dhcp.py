@@ -8,6 +8,9 @@ from app.services.server_store import server_store
 from app.services.ssh import SSHService
 from app.services.ssh_pool import ssh_pool
 from app.services.dhcp_parser import parse_dhcpd_conf, serialize_dhcpd_conf, parse_dhcpd_leases
+from app.logger import get_logger
+
+logger = get_logger("api.dhcp")
 
 router = APIRouter(prefix="/api/dhcp", tags=["dhcp"])
 
@@ -73,7 +76,7 @@ def save_dhcp_config(ssh: SSHService, subnets: List[DHCPSubnet], reservations: L
     # Записываем во временный файл и проверяем синтаксис
     check_cmd = f'echo "{config_b64}" | base64 -d > /tmp/dhcpd_test.conf && dhcpd -t -cf /tmp/dhcpd_test.conf 2>&1'
     exit_code, stdout, stderr = ssh.execute(check_cmd)
-    print(f"[DEBUG] Syntax check: exit={exit_code}, output={stdout}")
+    logger.debug(f"Syntax check: exit={exit_code}, output={stdout}")
     
     if exit_code != 0:
         raise HTTPException(status_code=400, detail=f"Ошибка синтаксиса: {stdout or stderr}")
@@ -81,7 +84,7 @@ def save_dhcp_config(ssh: SSHService, subnets: List[DHCPSubnet], reservations: L
     # Создаём бэкап перед изменением
     backup_name = f"/etc/dhcp/dhcpd.conf.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     ssh.execute(f"cp {DHCPD_CONF_PATH} {backup_name}")
-    print(f"[DEBUG] Backup created: {backup_name}")
+    logger.debug(f"Backup created: {backup_name}")
     
     # Write config
     import tempfile
@@ -215,12 +218,12 @@ async def create_reservation(
     username: str = Depends(get_current_user),
 ):
     """Create a new DHCP reservation."""
-    print(f"[DEBUG] create_reservation: {reservation}")
+    logger.debug(f"create_reservation: {reservation}")
     ssh, from_pool = get_dhcp_ssh(server_id)
     
     try:
         subnets, reservations = load_dhcp_config(ssh)
-        print(f"[DEBUG] Loaded {len(subnets)} subnets, {len(reservations)} reservations")
+        logger.debug(f"Loaded {len(subnets)} subnets, {len(reservations)} reservations")
         
         new_reservation = DHCPReservation(**reservation.model_dump())
         reservations.append(new_reservation)
@@ -229,7 +232,7 @@ async def create_reservation(
         
         return new_reservation
     except Exception as e:
-        print(f"[DEBUG] Error creating reservation: {e}")
+        logger.error(f"Error creating reservation: {e}")
         raise
     finally:
         release_ssh(ssh, from_pool)

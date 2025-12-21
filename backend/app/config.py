@@ -14,9 +14,11 @@ class Settings(BaseSettings):
     
     # Paths
     base_dir: Path = Path(__file__).parent.parent
+    project_root: Path = base_dir.parent
+    logs_dir: Path = project_root / "logs"
     keys_dir: Path = base_dir / "keys"
     servers_file: Path = base_dir / "servers.yaml"
-    log_file: Path = Path("/var/log/ldc-panel.log")
+    log_file: Path = logs_dir / "backend.log"
     backups_dir: Path = Path("/backups")
     
     class Config:
@@ -27,3 +29,4 @@ settings = Settings()
 
 # Ensure directories exist
 settings.keys_dir.mkdir(parents=True, exist_ok=True)
+settings.logs_dir.mkdir(parents=True, exist_ok=True)

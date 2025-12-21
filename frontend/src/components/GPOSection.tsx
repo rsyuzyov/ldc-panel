@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { DataTable } from './DataTable'
 import { api } from '../api/client'
+import logger from '../utils/logger'
 
 interface GPO {
   id: string
@@ -34,7 +35,7 @@ export function GPOSection({ serverId }: GPOSectionProps) {
         modifiedDate: g.when_changed || g.modifiedDate || '',
       })))
     } catch (e) {
-      console.error('Failed to load GPOs:', e)
+      logger.error('Failed to load GPOs', e as Error)
       setGpos([])
     } finally {
       setLoading(false)

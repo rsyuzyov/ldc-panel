@@ -6,6 +6,7 @@ import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { api } from '../api/client'
+import logger from '../utils/logger'
 
 interface Server {
   id: string
@@ -51,7 +52,7 @@ export function ServersSection({ onServerAdded, servers, setServers }: ServersSe
         version: s.services?.ad ? 'Samba AD' : '',
       }))
       setServers(mapped)
-      
+
       // Автопроверка серверов которые ещё не проверены
       for (const server of mapped) {
         if (!server.services?.ad && server.id) {
@@ -59,7 +60,7 @@ export function ServersSection({ onServerAdded, servers, setServers }: ServersSe
         }
       }
     } catch (e) {
-      console.error('Failed to load servers:', e)
+      logger.error('Failed to load servers', e as Error)
     }
   }
 
@@ -116,7 +117,7 @@ export function ServersSection({ onServerAdded, servers, setServers }: ServersSe
         form.append('id', id)
 
         const created = await api.createServer(form)
-        
+
         const newServer: Server = {
           id: created.id || id,
           name: created.name || formData.name,
@@ -128,7 +129,7 @@ export function ServersSection({ onServerAdded, servers, setServers }: ServersSe
           role: '',
           version: '',
         }
-        
+
         setServers((prev) => [...prev, newServer])
         setDialogOpen(false)
 
@@ -145,14 +146,14 @@ export function ServersSection({ onServerAdded, servers, setServers }: ServersSe
   }
 
   const testServerConnection = async (server: Server) => {
-    console.log('Testing server:', server.id)
+    logger.debug('Testing server', { serverId: server.id })
     try {
       setServers((prev) =>
         prev.map((s) => (s.id === server.id ? { ...s, status: 'Проверка...' } : s))
       )
 
       const result = await api.testServer(server.id)
-      console.log('Test result:', result)
+      logger.debug('Test result', { result })
 
       setServers((prev) =>
         prev.map((s) => {
@@ -173,7 +174,7 @@ export function ServersSection({ onServerAdded, servers, setServers }: ServersSe
         })
       )
     } catch (e) {
-      console.error('Test error:', e)
+      logger.error('Server test error', e as Error)
       setServers((prev) =>
         prev.map((s) => (s.id === server.id ? { ...s, status: `Ошибка: ${(e as Error).message}` } : s))
       )

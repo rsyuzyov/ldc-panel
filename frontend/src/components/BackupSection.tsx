@@ -3,6 +3,7 @@ import { Button } from './ui/button'
 import { DataTable } from './DataTable'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog'
 import { api } from '../api/client'
+import logger from '../utils/logger'
 
 interface BackupFile {
   filename: string
@@ -27,7 +28,7 @@ export function BackupSection({ serverId }: BackupSectionProps) {
       const data = await api.getBackups(serverId)
       setBackups(data)
     } catch (err) {
-      console.error('Failed to load backups:', err)
+      logger.error('Failed to load backups', err as Error)
       setBackups([])
     }
   }

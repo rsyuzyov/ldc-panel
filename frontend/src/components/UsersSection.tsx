@@ -8,6 +8,7 @@ import { Label } from './ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { MultiSelect } from './ui/multi-select'
 import { api } from '../api/client'
+import logger from '../utils/logger'
 
 interface ADGroup {
   dn: string
@@ -89,14 +90,14 @@ export function UsersSection({ serverId }: UsersSectionProps) {
           // memberOf содержит DN групп (уже декодированы на бэкенде)
           const memberOf = u.memberOf || []
           const memberOfArray = Array.isArray(memberOf) ? memberOf : [memberOf]
-          
+
           const groupNames = memberOfArray
             .map((dn: string) => {
               const match = dn.match(/CN=([^,]+)/i)
               return match ? match[1] : dn
             })
             .join(', ')
-          
+
           return {
             id: u.dn || u.username,
             dn: u.dn || '',
@@ -130,7 +131,7 @@ export function UsersSection({ serverId }: UsersSectionProps) {
         }))
       )
     } catch (e) {
-      console.error('Failed to load data:', e)
+      logger.error('Failed to load users data', e as Error)
       setUsers([])
     } finally {
       setLoading(false)
@@ -201,33 +202,33 @@ export function UsersSection({ serverId }: UsersSectionProps) {
         if (editingUser) {
           // Обновляем базовые данные пользователя
           await api.updateUser(serverId, editingUser.username, userFormData)
-          
+
           // Обновляем членство в группах
           const currentGroupDns = editingUser.groupDns || []
           const toAdd = selectedGroupDns.filter((dn) => !currentGroupDns.includes(dn))
           const toRemove = currentGroupDns.filter((dn) => !selectedGroupDns.includes(dn))
-          
+
           // Добавляем в новые группы
           for (const groupDn of toAdd) {
             try {
-              console.log('Adding to group:', groupDn, 'user:', editingUser.dn)
+              logger.debug('Adding to group', { groupDn, userDn: editingUser.dn })
               await api.addUserToGroup(serverId, groupDn, editingUser.dn)
             } catch (e: any) {
-              console.error('Failed to add to group:', groupDn, e)
+              logger.error('Failed to add to group', e as Error)
               alert(`Ошибка добавления в группу: ${e.message}`)
             }
           }
-          
+
           // Удаляем из старых групп
           for (const groupDn of toRemove) {
             try {
               await api.removeUserFromGroup(serverId, groupDn, editingUser.dn)
             } catch (e: any) {
-              console.error('Failed to remove from group:', groupDn, e)
+              logger.error('Failed to remove from group', e as Error)
               alert(`Ошибка удаления из группы: ${e.message}`)
             }
           }
-          
+
           await loadData()
         } else {
           await api.createUser(serverId, userFormData)

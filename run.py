@@ -95,6 +95,18 @@ def main():
     print(f"  → http://{args.host}:{args.port}/docs (Swagger UI)")
     print("\n  Press Ctrl+C to stop\n")
     
+    # Check if port is already in use
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind((args.host, args.port))
+        sock.close()
+    except OSError:
+        print(f"\n  ✗ ОШИБКА: Порт {args.port} уже занят!")
+        print(f"    Возможно, сервер уже запущен.")
+        print(f"    Используйте другой порт: python run.py -p {args.port + 1}\n")
+        sys.exit(1)
+    
     try:
         import uvicorn
         uvicorn.run(
@@ -102,7 +114,9 @@ def main():
             host=args.host,
             port=args.port,
             reload=args.reload,
-            log_level="debug" if args.debug else "info",
+            log_level="info",
+            access_log=True,
+            use_colors=False,
         )
     except KeyboardInterrupt:
         print("\n\nServer stopped.")

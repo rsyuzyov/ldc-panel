@@ -8,6 +8,9 @@ from app.models.server import ServerConfig, ServerCreate, ServerResponse, Server
 from app.services.server_store import server_store
 from app.services.ssh import test_connection
 from app.services.ssh_keys import save_ssh_key, delete_ssh_key
+from app.logger import get_logger
+
+logger = get_logger("api.servers")
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
 

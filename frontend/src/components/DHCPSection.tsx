@@ -6,6 +6,7 @@ import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { api } from '../api/client'
+import logger from '../utils/logger'
 
 interface DHCPScope {
   id: string
@@ -91,7 +92,7 @@ export function DHCPSection({ serverId }: DHCPSectionProps) {
         }))
       )
     } catch (e) {
-      console.error('Failed to load DHCP data:', e)
+      logger.error('Failed to load DHCP data', e as Error)
     } finally {
       setLoading(false)
     }
