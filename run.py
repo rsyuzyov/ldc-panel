@@ -36,11 +36,13 @@ def main():
             config = default_config
             
     parser = argparse.ArgumentParser(description="LDC Panel Development Server")
-    parser.add_argument("--host", default=config.get("host", "127.0.0.1"), help=f"Host to bind (default: {config.get('host', '127.0.0.1')})")
-    parser.add_argument("--port", "-p", type=int, default=config.get("port", 8000), help=f"Port to bind (default: {config.get('port', 8000)})")
-    parser.add_argument("--reload", "-r", action="store_true", help="Enable auto-reload")
-    parser.add_argument("--debug", "-d", action="store_true", help="Enable debug mode")
+    parser.add_argument("--dev", action="store_true", help="Development mode (auto-reload + debug)")
     args = parser.parse_args()
+    
+    # Параметры из config.yaml
+    host = config.get("host", "127.0.0.1")
+    port = config.get("port", 8000)
+    dev_mode = args.dev
     
     # Check if we should use venv
     # root_dir is already defined at the top
@@ -76,7 +78,7 @@ def main():
                 # Continue and try normal execution (will likely fail)
 
     # Set environment
-    if args.debug:
+    if dev_mode:
         os.environ["LDC_DEBUG"] = "true"
     
     # Ensure we're in the backend directory
@@ -86,37 +88,36 @@ def main():
     sys.path.insert(0, str(backend_dir))
     
     print("=" * 50)
-    print("LDC Panel Development Server")
+    print("LDC Panel Server")
     print("=" * 50)
-    print(f"  Host: {args.host}")
-    print(f"  Port: {args.port}")
-    print(f"  Reload: {args.reload}")
-    print(f"  Debug: {args.debug}")
+    print(f"  Host: {host}")
+    print(f"  Port: {port}")
+    print(f"  Dev mode: {dev_mode}")
     print("=" * 50)
-    print(f"\n  → http://{args.host}:{args.port}")
-    print(f"  → http://{args.host}:{args.port}/docs (Swagger UI)")
+    print(f"\n  → http://{host}:{port}")
+    print(f"  → http://{host}:{port}/docs (Swagger UI)")
     print("\n  Press Ctrl+C to stop\n")
     
     # Check if port is already in use
     import socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        sock.bind((args.host, args.port))
+        sock.bind((host, port))
         sock.close()
     except OSError:
-        print(f"\n  ✗ ОШИБКА: Порт {args.port} уже занят!")
+        print(f"\n  ✗ ОШИБКА: Порт {port} уже занят!")
         print(f"    Возможно, сервер уже запущен.")
-        print(f"    Используйте другой порт: python run.py -p {args.port + 1}\n")
+        print(f"    Измените порт в config.yaml\n")
         sys.exit(1)
     
     try:
         import uvicorn
         uvicorn.run(
             "app.main:app",
-            host=args.host,
-            port=args.port,
-            reload=args.reload,
-            log_level="info",
+            host=host,
+            port=port,
+            reload=dev_mode,
+            log_level="debug" if dev_mode else "info",
             access_log=True,
             use_colors=False,
         )

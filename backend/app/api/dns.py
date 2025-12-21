@@ -66,6 +66,34 @@ def release_ssh(ssh: SSHService, from_pool: bool) -> None:
         ssh.disconnect()
 
 
+def sort_dns_zones(zones: list, domain_dn: str) -> list:
+    """Sort DNS zones: domain zone first, RootDNSServers last.
+    
+    Args:
+        zones: List of DNSZone objects
+        domain_dn: Domain DN like DC=ag,DC=local
+    
+    Returns:
+        Sorted list of zones
+    """
+    # Extract domain name from domain_dn: DC=ag,DC=local -> ag.local
+    parts = [p.split('=')[1] for p in domain_dn.split(',') if p.startswith('DC=')]
+    domain_name = '.'.join(parts).lower() if parts else None
+    
+    def zone_sort_key(zone):
+        name = zone.name.lower()
+        # RootDNSServers always last
+        if name == 'rootdnsservers':
+            return (2, name)
+        # Domain zone first
+        if domain_name and name == domain_name:
+            return (0, name)
+        # Others in between
+        return (1, name)
+    
+    return sorted(zones, key=zone_sort_key)
+
+
 def get_domain_dn(ssh: SSHService, server) -> str:
     """Get domain DN from server config or RootDSE."""
     if server.base_dn:
@@ -134,6 +162,9 @@ async def get_zones(
         # Search in DomainDnsZones and ForestDnsZones
         search_partition("CN=MicrosoftDNS,DC=DomainDnsZones")
         search_partition("CN=MicrosoftDNS,DC=ForestDnsZones")
+        
+        # Sort zones: domain zone first, RootDNSServers last
+        zones = sort_dns_zones(zones, domain_dn)
         
         logger.debug(f"Parsed zones: {[z.name for z in zones]}")
         return zones
@@ -503,7 +534,10 @@ async def get_all_dns_data(
         search_partition("CN=MicrosoftDNS,DC=DomainDnsZones")
         search_partition("CN=MicrosoftDNS,DC=ForestDnsZones")
         
-        # Find first forward zone
+        # Sort zones: domain zone first, RootDNSServers last
+        zones = sort_dns_zones(zones, domain_dn)
+        
+        # Find first forward zone (now domain zone due to sorting)
         first_zone = next((z for z in zones if z.type == "forward"), None)
         records = []
         current_zone = None
