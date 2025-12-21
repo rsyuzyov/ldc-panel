@@ -53,7 +53,7 @@ def main():
     # Step 2: Create virtual environment
     print("\n[2/7] Creating virtual environment...")
     if not venv_path.exists():
-        if not run_cmd(f"{sys.executable} -m venv {venv_path}"):
+        if not run_cmd(f'"{sys.executable}" -m venv "{venv_path}"'):
             sys.exit(1)
     else:
         print("  → Virtual environment already exists")
@@ -62,12 +62,15 @@ def main():
     print("\n[3/7] Installing Python dependencies...")
     if IS_WINDOWS:
         pip_path = venv_path / "Scripts" / "pip.exe"
+        python_path = venv_path / "Scripts" / "python.exe"
     else:
         pip_path = venv_path / "bin" / "pip"
+        python_path = venv_path / "bin" / "python"
 
     requirements_path = backend_dir / "requirements.txt"
     
-    if not run_cmd(f"{pip_path} install --upgrade pip"):
+    # Use python -m pip to upgrade pip (pip can't upgrade itself directly)
+    if not run_cmd(f'"{python_path}" -m pip install --upgrade pip'):
         sys.exit(1)
 
     # Allow modifying requirements for Windows on the fly or just warn?
@@ -82,13 +85,13 @@ def main():
         
         temp_reqs = backend_dir / "requirements_win.txt"
         temp_reqs.write_text("\n".join(filtered_reqs))
-        if not run_cmd(f"{pip_path} install -r {temp_reqs}"):
+        if not run_cmd(f'"{pip_path}" install -r "{temp_reqs}"'):
             sys.exit(1)
         # Clean up
         if temp_reqs.exists():
             os.remove(temp_reqs)
     else:
-        if not run_cmd(f"{pip_path} install -r {requirements_path}"):
+        if not run_cmd(f'"{pip_path}" install -r "{requirements_path}"'):
             sys.exit(1)
     
     # Step 4: Create directories
@@ -200,9 +203,10 @@ WantedBy=multi-user.target
             if IS_WINDOWS:
                  npm_cmd = "npm.cmd"
             
-            if not run_cmd(f"cd {frontend_dir} && {npm_cmd} install"):
+            # Using quotes to handle paths with spaces
+            if not run_cmd(f'cd "{frontend_dir}" && {npm_cmd} install'):
                  print("  ✗ Frontend install failed")
-            elif not run_cmd(f"cd {frontend_dir} && {npm_cmd} run build"):
+            elif not run_cmd(f'cd "{frontend_dir}" && {npm_cmd} run build'):
                  print("  ✗ Frontend build failed")
             else:
                  print("  ✓ Frontend built successfully")

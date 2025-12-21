@@ -45,9 +45,6 @@ tests/config.json
 .pytest_cache/
 .hypothesis/
 
-# Kiro
-.agent/
-
 # Node
 node_modules/
 npm-debug.log
