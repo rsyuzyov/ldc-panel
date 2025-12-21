@@ -17,6 +17,12 @@ def run_cmd(cmd: str, check: bool = True) -> bool:
         return False
     return result.returncode == 0
 
+import shutil
+def check_npm():
+    """Check if npm is installed."""
+    return shutil.which("npm") is not None
+
+
 
 def main():
     print("=" * 50)
@@ -32,14 +38,14 @@ def main():
     
     root_dir = Path(__file__).parent.resolve()
     backend_dir = root_dir / "backend"
-    venv_path = backend_dir / "venv"
+    venv_path = backend_dir / ".venv"
     
     # Step 1: Install system dependencies (Linux only)
     if not IS_WINDOWS:
         print("\n[1/7] Installing system dependencies...")
         if not run_cmd("apt-get update -qq"):
             sys.exit(1)
-        if not run_cmd("apt-get install -y python3-pip python3-venv python3-dev libpam0g-dev nginx"):
+        if not run_cmd("apt-get install -y python3-pip python3-venv python3-dev libpam0g-dev nginx nodejs npm"):
             sys.exit(1)
     else:
         print("\n[1/7] Skipping system dependencies (Windows detected)...")
@@ -177,8 +183,41 @@ WantedBy=multi-user.target
     print("✓ Installation complete!")
     print("=" * 50)
     print("\nNext steps:")
-    print(f"  1. Build frontend: cdfrontend && npm install && npm run build")
+    # Step 8: Build Frontend
+    print("\n[8/8] Building Frontend...")
+    frontend_dir = root_dir / "frontend"
+    if not check_npm():
+        print("  ✗ Error: npm not found. Skipping frontend build.")
+        print("    Please install Node.js and npm manually and run: cd frontend && npm install && npm run build")
+    else:
+        try:
+            print("  → Installing frontend dependencies...")
+            npm_cmd = "npm" 
+            # On Windows we might need npm.cmd, but check_npm uses shutil.which which handles it. 
+            # However, for subprocess on Windows, shell=True helps or using full path.
+            # Since install.py for Windows skips apt, we rely on user having Node installed.
+            
+            if IS_WINDOWS:
+                 npm_cmd = "npm.cmd"
+            
+            if not run_cmd(f"cd {frontend_dir} && {npm_cmd} install"):
+                 print("  ✗ Frontend install failed")
+            elif not run_cmd(f"cd {frontend_dir} && {npm_cmd} run build"):
+                 print("  ✗ Frontend build failed")
+            else:
+                 print("  ✓ Frontend built successfully")
+        except Exception as e:
+            print(f"  ✗ Error building frontend: {e}")
+
+    # Done
+    print("\n" + "=" * 50)
+    print("✓ Installation complete!")
+    print("=" * 50)
+    print("\nNext steps:")
+    if not (frontend_dir / "dist").exists():
+         print(f"  1. Build frontend (if failed above): cd frontend && npm install && npm run build")
     if not IS_WINDOWS:
+
         print("  2. Configure nginx: cp nginx.conf /etc/nginx/sites-available/ldc-panel")
         print("  3. Enable nginx site: ln -s /etc/nginx/sites-available/ldc-panel /etc/nginx/sites-enabled/")
         print("  4. Create SSL certificate or use Let's Encrypt")

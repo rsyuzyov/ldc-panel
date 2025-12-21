@@ -45,7 +45,7 @@ def main():
     # Check if we should use venv
     # root_dir is already defined at the top
     backend_dir = root_dir / "backend"
-    venv_dir = backend_dir / "venv"
+    venv_dir = backend_dir / ".venv"
     
     # Basic check: if we are not in the venv, and venv exists, try to re-exec
     # Detection: sys.prefix check
@@ -66,6 +66,8 @@ def main():
             # Re-execute with the same arguments
             try:
                 subprocess.run([str(venv_python), __file__] + sys.argv[1:], check=True)
+                sys.exit(0)
+            except KeyboardInterrupt:
                 sys.exit(0)
             except subprocess.CalledProcessError as e:
                 sys.exit(e.returncode)
@@ -118,13 +120,15 @@ def main():
             access_log=True,
             use_colors=False,
         )
-    except KeyboardInterrupt:
-        print("\n\nServer stopped.")
     except ImportError:
         print("Error: uvicorn not installed")
         print("Run: pip install uvicorn[standard]")
         print("Or ensure the virtual environment is created: python install.py")
         sys.exit(1)
+    except KeyboardInterrupt:
+        pass
+    
+    print("\nОстановлено пользователем.")
 
 
 if __name__ == "__main__":
