@@ -26,8 +26,8 @@ DEFAULT_CONFIG = {
         "ssh_password": "YOUR_SSH_PASSWORD"
     },
     "server": {
-        "frontend_url": "http://localhost:5173",
-        "backend_url": "http://localhost:8000"
+        "frontend_url": "http://localhost:8003",
+        "backend_url": "http://localhost:8003"
     },
     "test_user": {
         "username": "ldc-panel-test",
@@ -58,6 +58,23 @@ console_errors = []
 
 def check_config():
     """Проверка наличия и валидности конфига."""
+    # Попытка автоматически подтянуть настройки из config.yaml
+    root_dir = Path(__file__).parent.parent
+    config_yaml = root_dir / "config.yaml"
+    if config_yaml.exists():
+        try:
+            import yaml
+            with open(config_yaml, "r") as f:
+                core_config = yaml.safe_load(f)
+                if core_config:
+                    port = core_config.get("port", 8003)
+                    host = core_config.get("host", "localhost")
+                    url = f"http://{host}:{port}"
+                    DEFAULT_CONFIG["server"]["frontend_url"] = url
+                    DEFAULT_CONFIG["server"]["backend_url"] = url
+        except Exception:
+            pass
+
     if not CONFIG_PATH.exists():
         print(f"Конфиг не найден. Создаю {CONFIG_PATH}")
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:

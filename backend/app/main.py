@@ -38,24 +38,34 @@ async def health_check():
 
 # Mount static files (Frontend)
 import os
+from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-# Adjust path to point to frontend/dist relative to backend/app/main.py
-# backend/app/main.py -> backend/ -> repo/ -> frontend/dist
-frontend_dir = "../frontend/dist"
+# Get absolute path to project root
+# backend/app/main.py -> backend/app -> backend -> project_root
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+frontend_dir = BASE_DIR / "frontend" / "dist"
 
-if os.path.exists(frontend_dir):
-    app.mount("/assets", StaticFiles(directory=f"{frontend_dir}/assets"), name="assets")
+if frontend_dir.exists():
+    # Mount assets folder
+    assets_dir = frontend_dir / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
     
-    # SPA Fallback
+    # SPA Fallback and root static files
     @app.get("/{full_path:path}")
     async def catch_all(full_path: str):
         # Allow API routes to pass through (though they should match above)
         if full_path.startswith("api/"):
              return {"error": "Not Found"}
         
+        # Check if requested file exists in frontend_dir (e.g., favicon.svg)
+        file_path = frontend_dir / full_path
+        if full_path and file_path.is_file():
+            return FileResponse(str(file_path))
+            
         # Serve index.html for everything else (SPA routing)
-        return FileResponse(f"{frontend_dir}/index.html")
+        return FileResponse(str(frontend_dir / "index.html"))
 else:
     print(f"Warning: Frontend directory {frontend_dir} not found. Frontend will not be served.")
