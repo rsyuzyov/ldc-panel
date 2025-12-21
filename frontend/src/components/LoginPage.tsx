@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
+import logger from '../utils/logger'
 
 interface LoginPageProps {
   onLogin: (username: string, password: string) => Promise<void>
@@ -21,6 +22,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     try {
       await onLogin(username, password)
     } catch (err) {
+      logger.error('Login failed', err as Error)
       setError(err instanceof Error ? err.message : 'Ошибка авторизации')
     } finally {
       setLoading(false)

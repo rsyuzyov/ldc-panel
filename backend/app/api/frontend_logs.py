@@ -8,6 +8,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.api.auth import get_current_user
+from app.logger import archive_old_log
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
@@ -15,6 +16,9 @@ router = APIRouter(prefix="/api/logs", tags=["logs"])
 frontend_log_file = settings.logs_dir / "frontend.log"
 frontend_logger = logging.getLogger("ldc-panel.frontend")
 frontend_logger.setLevel(logging.DEBUG)
+
+# Archive old log on startup (rotation)
+archive_old_log(frontend_log_file)
 
 # Ensure no duplicate handlers
 if not frontend_logger.handlers:

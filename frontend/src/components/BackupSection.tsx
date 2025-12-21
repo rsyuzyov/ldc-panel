@@ -45,6 +45,7 @@ export function BackupSection({ serverId }: BackupSectionProps) {
       setMessage({ type: 'success', text: 'LDIF бэкап создан успешно' })
       loadBackups()
     } catch (err) {
+      logger.error('Failed to create LDIF backup', err as Error)
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Ошибка создания бэкапа' })
     } finally {
       setLoading(false)
@@ -59,6 +60,7 @@ export function BackupSection({ serverId }: BackupSectionProps) {
       setMessage({ type: 'success', text: 'DHCP бэкап создан успешно' })
       loadBackups()
     } catch (err) {
+      logger.error('Failed to create DHCP backup', err as Error)
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Ошибка создания бэкапа' })
     } finally {
       setLoading(false)
@@ -79,6 +81,7 @@ export function BackupSection({ serverId }: BackupSectionProps) {
       setMessage({ type: 'success', text: 'Бэкап восстановлен успешно' })
       setRestoreDialogOpen(false)
     } catch (err) {
+      logger.error('Failed to restore backup', err as Error)
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Ошибка восстановления' })
     } finally {
       setLoading(false)

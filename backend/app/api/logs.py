@@ -27,6 +27,9 @@ async def get_logs(
     """Get operation logs."""
     logs = operation_logger.get_logs(limit=limit, filter_operator=operator)
     
+    # Фильтруем только записи с полным набором полей (операционные логи)
+    required_keys = {"timestamp", "level", "operator", "action", "object", "details"}
+    
     return [
         LogEntry(
             timestamp=log["timestamp"],
@@ -37,4 +40,5 @@ async def get_logs(
             details=log["details"],
         )
         for log in logs
+        if required_keys.issubset(log.keys())
     ]

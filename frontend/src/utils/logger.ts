@@ -189,6 +189,27 @@ class Logger {
     }
 }
 
+// Global error handler for uncaught errors
+window.onerror = (message, source, lineno, colno, error) => {
+    Logger.error('Uncaught error', {
+        message: String(message),
+        source,
+        lineno,
+        colno,
+        stack: error?.stack,
+    })
+    return false // Don't prevent default handling
+}
+
+// Global handler for unhandled promise rejections
+window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason
+    Logger.error('Unhandled promise rejection', {
+        message: reason?.message || String(reason),
+        stack: reason?.stack,
+    })
+})
+
 // Flush logs before page unload
 window.addEventListener('beforeunload', () => {
     Logger['flushBatch']()
