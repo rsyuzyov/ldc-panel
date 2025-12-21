@@ -1,0 +1,42 @@
+CMD: ldbsearch -H ldap://srv-dc1.ag.local -k yes -b "CN=MicrosoftDNS,DC=DomainDnsZones,DC=ag,DC=local" "(objectClass=dnsZone)" name
+Exit: 1
+FAILED: WARNING: The option -k|--kerberos is deprecated!
+Failed to bind - LDAP client internal error: NT_STATUS_INVALID_PARAMETER
+Failed to connect to 'ldap://srv-dc1.ag.local' with backend 'ldap': LDAP client internal error: NT_STATUS_INVALID_PARAMETER
+Failed to connect to ldap://srv-dc1.ag.local - LDAP client internal error: NT_STATUS_INVALID_PARAMETER
+--------------------------------------------------
+CMD: ldbsearch -H ldap://srv-dc1.ag.local -b "CN=MicrosoftDNS,DC=DomainDnsZones,DC=ag,DC=local" "(objectClass=dnsZone)" name
+Exit: 1
+FAILED: 
+--------------------------------------------------
+CMD: ldbsearch -H srv-dc1.ag.local -k yes -b "CN=MicrosoftDNS,DC=DomainDnsZones,DC=ag,DC=local" "(objectClass=dnsZone)" name
+Exit: 1
+FAILED: WARNING: The option -k|--kerberos is deprecated!
+ltdb: tdb(srv-dc1.ag.local): tdb_open_ex: could not open file srv-dc1.ag.local: No such file or directory
+
+Unable to open tdb 'srv-dc1.ag.local': No such file or directory
+Failed to connect to 'srv-dc1.ag.local' with backend 'tdb': Unable to open tdb 'srv-dc1.ag.local': No such file or directory
+Failed to connect to srv-dc1.ag.local - Unable to open tdb 'srv-dc1.ag.local': No such file or directory
+--------------------------------------------------
+CMD: ldbsearch -H ldap://22 -k yes -b "CN=MicrosoftDNS,DC=DomainDnsZones,DC=ag,DC=local" "(objectClass=dnsZone)" name
+Exit: 1
+FAILED: WARNING: The option -k|--kerberos is deprecated!
+Failed to connect to ldap URL 'ldap://22' - LDAP client internal error: NT_STATUS_IO_TIMEOUT
+Failed to connect to 'ldap://22' with backend 'ldap': LDAP client internal error: NT_STATUS_IO_TIMEOUT
+Failed to connect to ldap://22 - LDAP client internal error: NT_STATUS_IO_TIMEOUT
+--------------------------------------------------
+CMD: ldbsearch -H /var/lib/samba/private/sam.ldb -b "CN=MicrosoftDNS,DC=DomainDnsZones,DC=ag,DC=local" "(objectClass=dnsZone)" name
+Exit: 0
+SUCCESS!
+# record 1
+dn: DC=RootDNSServers,CN=MicrosoftDNS,DC=DomainDnsZones,DC=ag,DC=local
+name: RootDNSServers
+
+# record 2
+dn: DC=ag.local,CN=MicrosoftDNS,DC=DomainDnsZones,DC=ag,DC=local
+name: ag.local
+
+# returned 2 records
+# 2 entries
+# 0 referrals
+--------------------------------------------------

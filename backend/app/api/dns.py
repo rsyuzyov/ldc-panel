@@ -73,14 +73,14 @@ def get_domain_dn(ssh: SSHService, server) -> str:
         return server.base_dn
         
     # Query RootDSE
-    cmd = f"ldbsearch -H ldap://{server.host} -k yes -b '' -s base defaultNamingContext"
-    logger.info(f"RootDSE search cmd: {cmd}")
+    cmd = f"ldbsearch -H /var/lib/samba/private/sam.ldb -b '' -s base defaultNamingContext"
+    logger.debug(f"RootDSE search cmd: {cmd}")
     exit_code, stdout, stderr = ssh.execute(cmd)
     
     if exit_code == 0:
         for line in stdout.split('\n'):
-            logger.info(f"RootDSE line: {line.strip()}")
-            if line.strip().startswith('defaultNamingContext:'):
+            line = line.strip()
+            if line.startswith('defaultNamingContext:'):
                 return line.split(':', 1)[1].strip()
     else:
         logger.warning(f"RootDSE search failed: {stderr}")
@@ -113,18 +113,15 @@ async def get_zones(
         
         # Helper to search in a partition
         def search_partition(partition_dn):
-            cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{partition_dn},{domain_dn}" "(objectClass=dnsZone)" name'
-            logger.info(f"Zone search cmd: {cmd}")
+            cmd = f'ldbsearch -H /var/lib/samba/private/sam.ldb -b "{partition_dn},{domain_dn}" "(objectClass=dnsZone)" name'
+            logger.debug(f"Zone search cmd: {cmd}")
             exit_code, stdout, stderr = ssh.execute(cmd)
-            
-            logger.info(f"Exit: {exit_code}, Stdout len: {len(stdout)}, Stderr: {stderr}")
             
             if exit_code != 0:
                 logger.warning(f"Zone search failed for {partition_dn}: {stderr}")
                 return
                 
             for line in stdout.split('\n'):
-                logger.info(f"Parsing line: {line.strip()}")
                 line = line.strip()
                 if line.startswith('name:'):
                     name = line.split(':', 1)[1].strip()
@@ -172,7 +169,7 @@ async def get_zone_records(
         base_dn = f"DC={zone},CN=MicrosoftDNS,DC=DomainDnsZones,{domain_dn}"
         
         # Получаем записи через ldbsearch с dnsRecord
-        cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{base_dn}" "(objectClass=dnsNode)" name dnsRecord --show-binary'
+        cmd = f'ldbsearch -H /var/lib/samba/private/sam.ldb -b "{base_dn}" "(objectClass=dnsNode)" name dnsRecord --show-binary'
         logger.debug(f"DNS ldbsearch command: {cmd}")
         exit_code, stdout, stderr = ssh.execute(cmd)
         logger.debug(f"DNS ldbsearch result: exit={exit_code}")
@@ -184,7 +181,7 @@ async def get_zone_records(
         
         if exit_code != 0:
             base_dn = f"DC={zone},CN=MicrosoftDNS,DC=ForestDnsZones,{domain_dn}"
-            cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{base_dn}" "(objectClass=dnsNode)" name dnsRecord --show-binary'
+            cmd = f'ldbsearch -H /var/lib/samba/private/sam.ldb -b "{base_dn}" "(objectClass=dnsNode)" name dnsRecord --show-binary'
             exit_code, stdout, stderr = ssh.execute(cmd)
             
             if exit_code != 0:
@@ -486,17 +483,14 @@ async def get_all_dns_data(
         
         # Helper to search zones
         def search_partition(partition_dn):
-            cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{partition_dn},{domain_dn}" "(objectClass=dnsZone)" name'
-            logger.info(f"Zone search cmd (all): {cmd}")
+            cmd = f'ldbsearch -H /var/lib/samba/private/sam.ldb -b "{partition_dn},{domain_dn}" "(objectClass=dnsZone)" name'
+            logger.debug(f"Zone search cmd (all): {cmd}")
             exit_code, stdout, stderr = ssh.execute(cmd)
-            
-            logger.info(f"Exit: {exit_code}, Stdout len: {len(stdout)}, Stderr: {stderr}")
             
             if exit_code != 0:
                 return
                 
             for line in stdout.split('\n'):
-                logger.info(f"Parsing line (all): {line.strip()}")
                 line = line.strip()
                 if line.startswith('name:'):
                     name = line.split(':', 1)[1].strip()
@@ -527,7 +521,7 @@ async def get_all_dns_data(
             ]
             
             for base_dn in partitions:
-                cmd = f'ldbsearch -H ldap://{server.host} -k yes -b "{base_dn}" "(objectClass=dnsNode)" name dnsRecord --show-binary'
+                cmd = f'ldbsearch -H /var/lib/samba/private/sam.ldb -b "{base_dn}" "(objectClass=dnsNode)" name dnsRecord --show-binary'
                 exit_code, stdout, stderr = ssh.execute(cmd)
                 
                 if exit_code == 0:
